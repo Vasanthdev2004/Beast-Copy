@@ -3,15 +3,19 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::{info, warn, error};
 use rust_decimal::Decimal;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use crate::types::{OrderIntent, BotState};
 use crate::config::AppConfig;
+use crate::engines::position_tracker::PositionTracker;
 
 pub struct RiskGate {
     intent_rx: mpsc::Receiver<OrderIntent>,
     clob_tx: mpsc::Sender<OrderIntent>,
     bot_state: Arc<RwLock<BotState>>,
     config: Arc<RwLock<AppConfig>>,
-    consecutive_losses: usize,
+    position_tracker: Arc<PositionTracker>,
+    consecutive_losses: Arc<AtomicUsize>,
 }
 
 impl RiskGate {
@@ -20,13 +24,16 @@ impl RiskGate {
         clob_tx: mpsc::Sender<OrderIntent>,
         bot_state: Arc<RwLock<BotState>>,
         config: Arc<RwLock<AppConfig>>,
+        position_tracker: Arc<PositionTracker>,
+        consecutive_losses: Arc<AtomicUsize>,
     ) -> Self {
         Self {
             intent_rx,
             clob_tx,
             bot_state,
             config,
-            consecutive_losses: 0,
+            position_tracker,
+            consecutive_losses,
         }
     }
 
@@ -57,22 +64,26 @@ impl RiskGate {
             return false;
         }
 
-        if self.consecutive_losses >= config.risk.consecutive_loss_halt {
+        let losses = self.consecutive_losses.load(Ordering::SeqCst);
+        if losses >= config.risk.consecutive_loss_halt {
             *self.bot_state.write().await = BotState::Halted;
-            warn!("CIRCUIT BREAKER: halted due to consecutive losses");
+            warn!("CIRCUIT BREAKER: halted due to {} consecutive losses", losses);
+            return false;
+        }
+
+        let open_positions = self.position_tracker.get_total_open_positions();
+        if open_positions >= config.risk.max_open_positions {
+            warn!("Max open positions ({}) reached", open_positions);
             return false;
         }
         
         // Extended checks for slippage and portfolio max open pos would happen here, querying PositionTracker/MemoryStore
+        // Simple slippage check (assuming intent.price is already close to market odds)
+        if intent.price < rust_decimal_macros::dec!(0.01) || intent.price > rust_decimal_macros::dec!(0.99) {
+            warn!("Price {} outside safe bounds, likely high slippage or settled market", intent.price);
+            return false;
+        }
         
         true
-    }
-
-    pub fn register_loss(&mut self) {
-        self.consecutive_losses += 1;
-    }
-    
-    pub fn register_win(&mut self) {
-        self.consecutive_losses = 0;
     }
 }

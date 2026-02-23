@@ -25,7 +25,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 3. Shared State
     let bot_state = Arc::new(RwLock::new(BotState::Running));
-    let wallet_tracker = engines::wallet_tracker::WalletTracker::new(config.clone());
+    let consecutive_losses = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let wallet_tracker = engines::wallet_tracker::WalletTracker::new(config.clone()).await;
     let position_tracker = engines::position_tracker::PositionTracker::new(config.clone());
 
     // 4. Channels (Event Bus)
@@ -59,6 +60,8 @@ async fn main() -> anyhow::Result<()> {
         clob_tx,
         bot_state.clone(),
         config.clone(),
+        position_tracker.clone(),
+        consecutive_losses.clone(),
     );
 
     // CLOB Executor
@@ -73,9 +76,36 @@ async fn main() -> anyhow::Result<()> {
         result_rx,
         position_tracker.clone(),
         config.clone(),
+        consecutive_losses.clone(),
     );
 
-    // 6. Spawn all components as Tokio Tasks
+    // 6. Database Async Flush (Every 30s)
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/poly_apex".to_string());
+    if let Ok(db_client) = storage::db::DbClient::new(&db_url).await {
+        let db_client = Arc::new(db_client);
+        let wt = wallet_tracker.clone();
+        let pt = position_tracker.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                
+                // Flush positions
+                for entry in pt.positions.iter() {
+                    let _ = db_client.flush_position(entry.value()).await;
+                }
+                
+                // Flush wallet scores
+                for entry in wt.scores.iter() {
+                    let _ = db_client.flush_wallet_score(entry.value()).await;
+                }
+            }
+        });
+        info!("TimescaleDB async flush enabled.");
+    } else {
+        tracing::warn!("Failed to connect to database. Running without persistent storage.");
+    }
+
+    // 7. Spawn all components as Tokio Tasks
     tokio::spawn(async move { rtds_engine.run().await; });
     tokio::spawn(async move { copy_engine.run().await; });
     tokio::spawn(async move { risk_gate.run().await; });

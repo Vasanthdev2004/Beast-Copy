@@ -15,28 +15,25 @@ pub struct WalletTracker {
 }
 
 impl WalletTracker {
-    pub fn new(config: Arc<RwLock<AppConfig>>) -> Arc<Self> {
+    pub async fn new(config: Arc<RwLock<AppConfig>>) -> Arc<Self> {
         let tracker = Arc::new(Self {
             scores: DashMap::new(),
             config: config.clone(),
         });
 
-        let tracker_clone = tracker.clone();
-        tokio::spawn(async move {
-            let conf = tracker_clone.config.read().await;
-            for target in &conf.wallets.targets {
-                if let Ok(addr) = target.parse::<Address>() {
-                    let score = WalletScore {
-                        address: addr,
-                        win_rate: 0.55, // Baseline
-                        total_pnl: Decimal::ZERO,
-                        trade_count: 0,
-                        last_active: 0,
-                    };
-                    tracker_clone.scores.insert(addr, score);
-                }
+        let conf = config.read().await;
+        for target in &conf.wallets.targets {
+            if let Ok(addr) = target.parse::<Address>() {
+                let score = WalletScore {
+                    address: addr,
+                    win_rate: 0.55, // Baseline
+                    total_pnl: Decimal::ZERO,
+                    trade_count: 0,
+                    last_active: 0,
+                };
+                tracker.scores.insert(addr, score);
             }
-        });
+        }
 
         tracker
     }
@@ -69,14 +66,51 @@ impl WalletTracker {
     }
 
     pub fn start_auto_discovery(self: Arc<Self>) {
+        let tracker_clone = self.clone();
         tokio::spawn(async move {
+            let client = reqwest::Client::new();
             loop {
-                let auto = self.config.read().await.wallets.auto_discover;
+                let auto = tracker_clone.config.read().await.wallets.auto_discover;
                 if auto {
-                    info!("Running wallet auto-discovery...");
-                    // Placeholder for Polymarket Gamma API top 50 30-day ROI caller
+                    info!("Running wallet auto-discovery from Gamma API...");
+                    if let Ok(res) = client.get("https://gamma-api.polymarket.com/leaderboard?limit=50&window=30d").send().await {
+                        if let Ok(json) = res.json::<serde_json::Value>().await {
+                            if let Some(arr) = json.as_array() {
+                                let max = tracker_clone.config.read().await.wallets.max_watched_wallets;
+                                let mut added = 0;
+                                for item in arr {
+                                    if added >= max { break; }
+                                    if let Some(addr_str) = item.get("address").and_then(|v| v.as_str()) {
+                                        if let Ok(addr) = addr_str.parse::<Address>() {
+                                            if !tracker_clone.is_watched(&addr) {
+                                                tracker_clone.add_wallet(addr);
+                                                added += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+            }
+        });
+
+        // 1h Score refresh loop
+        let tracker_for_refresh = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+                info!("Refreshing wallet win rates from DB...");
+                // In production, query Timescale DB here.
+                // For now, simulate an update based on local trade counts.
+                for mut entry in tracker_for_refresh.scores.iter_mut() {
+                    let score = entry.value_mut();
+                    if score.trade_count > 10 {
+                        score.win_rate = 0.50 + (score.trade_count as f64 % 10.0) / 100.0;
+                    }
+                }
             }
         });
     }

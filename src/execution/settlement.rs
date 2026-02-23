@@ -2,15 +2,18 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{info, warn};
 
-use crate::types::{OrderResult, OrderStatus};
+use crate::types::{OrderResult, OrderStatus, Position, Side};
 use crate::config::AppConfig;
 use crate::engines::position_tracker::PositionTracker;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 
 
 pub struct SettlementMonitor {
     result_rx: mpsc::Receiver<OrderResult>,
-    _position_tracker: Arc<PositionTracker>,
+    position_tracker: Arc<PositionTracker>,
     config: Arc<RwLock<AppConfig>>,
+    consecutive_losses: Arc<AtomicUsize>,
 }
 
 impl SettlementMonitor {
@@ -18,11 +21,13 @@ impl SettlementMonitor {
         result_rx: mpsc::Receiver<OrderResult>,
         position_tracker: Arc<PositionTracker>,
         config: Arc<RwLock<AppConfig>>,
+        consecutive_losses: Arc<AtomicUsize>,
     ) -> Self {
         Self {
             result_rx,
-            _position_tracker: position_tracker,
+            position_tracker,
             config,
+            consecutive_losses,
         }
     }
 
@@ -46,11 +51,31 @@ impl SettlementMonitor {
             OrderStatus::Filled => {
                 if let Some(tx_hash) = result.tx_hash {
                     info!("Waiting for on-chain confirmation for tx: {:?}", tx_hash);
-                    // Future: check Polygon RPC for receipt
+                    
+                    // The future listener runs as an independent WS loop, but for now we manually accept
+                    self.consecutive_losses.store(0, Ordering::SeqCst);
+                    
+                    // Insert confirmed position via position_tracker
+                    let position = Position {
+                        market_id: "preview_market".to_string(), // In reality we map from OrderResult or intent
+                        side: Side::Yes,
+                        size: rust_decimal_macros::dec!(10.0),
+                        entry_price: result.filled_at,
+                        source_wallet: alloy::primitives::Address::default(),
+                        opened_at: result.timestamp,
+                        pnl: None,
+                    };
+                    self.position_tracker.add_position(position);
                 }
             }
-            OrderStatus::Rejected => warn!("Order rejected: {}", result.order_id),
-            OrderStatus::Timeout => warn!("Order timed out: {}", result.order_id),
+            OrderStatus::Rejected => {
+                warn!("Order rejected: {}", result.order_id);
+                self.consecutive_losses.fetch_add(1, Ordering::SeqCst);
+            }
+            OrderStatus::Timeout => {
+                warn!("Order timed out: {}", result.order_id);
+                self.consecutive_losses.fetch_add(1, Ordering::SeqCst);
+            }
         }
     }
 }

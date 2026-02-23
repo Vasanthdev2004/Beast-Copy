@@ -10,7 +10,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 alloy = { version = "0.3", features = ["full", "rlp"] }
 dashmap = "5"
-sqlx = { version = "0.7", features = ["postgres", "runtime-tokio", "uuid", "time"] }
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio", "uuid", "time", "rust_decimal"] }
 rust_decimal = "1"
 toml = "0.8"
 notify = "6"

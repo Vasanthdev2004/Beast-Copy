@@ -62,7 +62,7 @@ impl RtdsEngine {
                     loop {
                         tokio::select! {
                             _ = ping_rx.recv() => {
-                                if let Err(e) = write.send(Message::Text("PING".to_string())).await {
+                                if let Err(e) = write.send(Message::Ping(vec![].into())).await {
                                     error!("Ping failed: {}", e);
                                     break;
                                 }
