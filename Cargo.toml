@@ -1,0 +1,28 @@
+[package]
+name = "poly-apex-copy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+alloy = { version = "0.3", features = ["full", "rlp"] }
+dashmap = "5"
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio", "uuid", "time"] }
+rust_decimal = "1"
+toml = "0.8"
+notify = "6"
+teloxide = { version = "0.12", features = ["macros"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1"
+thiserror = "1"
+tokio-retry = "0.3"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = "0.3"
+futures = "0.3"
+reqwest = { version = "0.12", features = ["json"] }
+rust_decimal_macros = "1"
+rs-clob-client = { git = "https://github.com/Polymarket/rs-clob-client.git", branch = "main" }

@@ -1,0 +1,31 @@
+[wallets]
+targets = ["0xABC0000000000000000000000000000000000000", "0xDEF0000000000000000000000000000000000000"]
+auto_discover = false
+max_watched_wallets = 20
+
+[copy]
+preview_mode = true
+copy_ratio = 0.5
+sizing_mode = "kelly"
+fixed_usdc = 10.0
+max_single_trade_usdc = 100.0
+min_market_liquidity_usdc = 500.0
+min_copy_size_usdc = 2.0
+cooldown_per_market_secs = 60
+dedup_window_secs = 30
+
+[risk]
+daily_max_loss_usdc = 300.0
+max_open_positions = 10
+max_slippage_pct = 2.5
+consecutive_loss_halt = 3
+halt_duration_mins = 15
+
+[rpc]
+polygon_rpc = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY"
+backup_rpc = "https://rpc-mainnet.matic.network"
+confirmation_timeout_secs = 60
+
+[telegram]
+bot_token = ""
+allowed_user_ids = [123456789]
