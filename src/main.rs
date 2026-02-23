@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         clob_rx,
         result_tx,
         config.clone(),
-    );
+    ).await;
 
     // Settlement Monitor
     let settlement_monitor = execution::settlement::SettlementMonitor::new(
