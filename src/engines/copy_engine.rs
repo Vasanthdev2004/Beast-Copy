@@ -10,6 +10,7 @@ use crate::config::AppConfig;
 use crate::engines::wallet_tracker::WalletTracker;
 use crate::utils::math::calculate_kelly_size;
 use tokio::sync::RwLock;
+use std::str::FromStr;
 
 pub struct CopyEngine {
     trade_rx: broadcast::Receiver<TradeEvent>,
@@ -19,6 +20,7 @@ pub struct CopyEngine {
     bot_state: Arc<RwLock<BotState>>,
     portfolio_balance: Arc<RwLock<Decimal>>,
     recent_trades: Arc<dashmap::DashMap<String, u64>>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
 }
 
 impl CopyEngine {
@@ -28,6 +30,8 @@ impl CopyEngine {
         wallet_tracker: Arc<WalletTracker>,
         config: Arc<RwLock<AppConfig>>,
         bot_state: Arc<RwLock<BotState>>,
+        portfolio_balance: Arc<RwLock<Decimal>>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
     ) -> Self {
         Self {
             trade_rx,
@@ -35,8 +39,9 @@ impl CopyEngine {
             wallet_tracker,
             config,
             bot_state,
-            portfolio_balance: Arc::new(RwLock::new(dec!(0.0))),
+            portfolio_balance,
             recent_trades: Arc::new(dashmap::DashMap::new()),
+            log_tx,
         }
     }
 
@@ -62,13 +67,17 @@ impl CopyEngine {
             let usdc_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
             loop {
                 let rpc_url = config_rpc.read().await.rpc.polygon_rpc.clone();
-                // Very basic derive public address from private key (or just use public key config)
-                // Since this runs locally, we can assume the user configures their public address or we derive it via alloy
-                // Wait, alloy can derive address from private key. Since we need it for balance, let's use a dummy for now 
-                // and later refactor clob_executor to provide it. For now, we fetch safely if WALLET_PUBLIC_ADDRESS is set.
-                let wallet_address = std::env::var("WALLET_PUBLIC_ADDRESS").unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".to_string());
+                let mut wallet_address = std::env::var("WALLET_PUBLIC_ADDRESS").unwrap_or_default();
+                if wallet_address.is_empty() {
+                    // Fall back to deriving from private key
+                    if let Ok(pk) = std::env::var("WALLET_PRIVATE_KEY") {
+                        if let Ok(signer) = alloy_signer_local::PrivateKeySigner::from_str(&pk) {
+                            wallet_address = format!("{:?}", signer.address());
+                        }
+                    }
+                }
                 
-                if wallet_address != "0x0000000000000000000000000000000000000000" {
+                if !wallet_address.is_empty() && wallet_address != "0x0000000000000000000000000000000000000000" {
                     let mut data = "0x70a08231000000000000000000000000".to_string();
                     data.push_str(wallet_address.trim_start_matches("0x"));
 
@@ -169,6 +178,15 @@ impl CopyEngine {
             order_type: OrderType::FOK,
             source_wallet: event.wallet,
         };
+
+        let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+            time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+            kind: "COPY".to_string(),
+            message: format!("Wallet 0x{}…{} size: ${}", 
+                &format!("{:?}", event.wallet)[2..6],
+                &format!("{:?}", event.wallet)[38..42],
+                size),
+        });
 
         if let Err(e) = self.intent_tx.send(intent).await {
             error!("Failed to send OrderIntent to RiskGate: {}", e);

@@ -75,12 +75,27 @@ pub async fn push_log(state: &DashboardState, kind: &str, message: &str) {
 }
 
 /// Run the TUI dashboard (blocks on the current task, handles input)
-pub async fn run_dashboard(state: Arc<DashboardState>) -> io::Result<()> {
+pub async fn run_dashboard(
+    state: Arc<DashboardState>,
+    mut log_rx: tokio::sync::mpsc::UnboundedReceiver<LogEntry>,
+) -> io::Result<()> {
     enable_raw_mode()?;
     io::stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     loop {
+        // Drain incoming logs without blocking
+        {
+            let mut log = state.trade_log.write().await;
+            while let Ok(entry) = log_rx.try_recv() {
+                log.push(entry);
+            }
+            if log.len() > 200 {
+                let drain_to = log.len() - 200;
+                log.drain(0..drain_to);
+            }
+        }
+
         // Gather snapshot data
         let bot_st = *state.bot_state.read().await;
         let config = state.config.read().await.clone();

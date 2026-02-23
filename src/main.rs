@@ -33,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
     let consecutive_losses = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let wallet_tracker = engines::wallet_tracker::WalletTracker::new(config.clone()).await;
     let position_tracker = engines::position_tracker::PositionTracker::new(config.clone());
+    let usdc_balance = Arc::new(RwLock::new(dec!(0)));
 
     // 4. Channels (Event Bus)
     // RTDS -> CopyEngine
@@ -43,6 +44,8 @@ async fn main() -> anyhow::Result<()> {
     let (clob_tx, clob_rx) = mpsc::channel::<OrderIntent>(1000);
     // ClobExecutor -> SettlementMonitor
     let (result_tx, result_rx) = mpsc::channel::<OrderResult>(1000);
+    // Any -> TUI Dashboard
+    let (log_tx, log_rx) = tokio::sync::mpsc::unbounded_channel::<crate::tui::dashboard::LogEntry>();
 
     // 5. Instantiate Modules
     
@@ -57,6 +60,8 @@ async fn main() -> anyhow::Result<()> {
         wallet_tracker.clone(),
         config.clone(),
         bot_state.clone(),
+        usdc_balance.clone(),
+        log_tx.clone(),
     );
 
     // Risk Gate
@@ -67,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
         position_tracker.clone(),
         consecutive_losses.clone(),
+        log_tx.clone(),
     );
 
     // CLOB Executor
@@ -74,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
         clob_rx,
         result_tx,
         config.clone(),
+        log_tx.clone(),
     ).await;
 
     // Settlement Monitor
@@ -82,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
         position_tracker.clone(),
         config.clone(),
         consecutive_losses.clone(),
+        log_tx.clone(),
     );
 
     // 6. Database Async Flush (Every 30s)
@@ -136,8 +144,7 @@ async fn main() -> anyhow::Result<()> {
         ).await;
     });
 
-    // 8. USDC balance for dashboard
-    let usdc_balance = Arc::new(RwLock::new(dec!(0)));
+    // 8. (Removed local usdc_balance, it was moved up to shared state)
 
     // 9. Launch TUI Dashboard (runs on main thread)
     let dashboard_state = Arc::new(tui::dashboard::DashboardState::new(
@@ -149,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
         usdc_balance,
     ));
 
-    tui::dashboard::run_dashboard(dashboard_state).await.ok();
+    tui::dashboard::run_dashboard(dashboard_state, log_rx).await.ok();
 
     Ok(())
 }

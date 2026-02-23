@@ -16,6 +16,7 @@ pub struct RiskGate {
     config: Arc<RwLock<AppConfig>>,
     position_tracker: Arc<PositionTracker>,
     consecutive_losses: Arc<AtomicUsize>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
 }
 
 impl RiskGate {
@@ -26,6 +27,7 @@ impl RiskGate {
         config: Arc<RwLock<AppConfig>>,
         position_tracker: Arc<PositionTracker>,
         consecutive_losses: Arc<AtomicUsize>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
     ) -> Self {
         Self {
             intent_rx,
@@ -34,6 +36,7 @@ impl RiskGate {
             config,
             position_tracker,
             consecutive_losses,
+            log_tx,
         }
     }
 
@@ -52,7 +55,11 @@ impl RiskGate {
 
     async fn pre_trade_checks(&mut self, intent: &OrderIntent) -> bool {
         if *self.bot_state.read().await != BotState::Running {
-            warn!("Bot is not running. Rejecting intent.");
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "SKIP".to_string(),
+                message: "Bot paused, skipped intent".to_string(),
+            });
             return false;
         }
 
@@ -60,27 +67,43 @@ impl RiskGate {
 
         let min_size = Decimal::from_f64_retain(config.copy.min_copy_size_usdc).unwrap_or(rust_decimal_macros::dec!(2.0));
         if intent.size < min_size {
-            warn!("Order size {} below minimum {}", intent.size, min_size);
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "SKIP".to_string(),
+                message: format!("Size {} below min {}", intent.size, min_size),
+            });
             return false;
         }
 
         let losses = self.consecutive_losses.load(Ordering::SeqCst);
         if losses >= config.risk.consecutive_loss_halt {
             *self.bot_state.write().await = BotState::Halted;
-            warn!("CIRCUIT BREAKER: halted due to {} consecutive losses", losses);
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "RISK".to_string(),
+                message: format!("HALTED: {} consecutive losses", losses),
+            });
             return false;
         }
 
         let open_positions = self.position_tracker.get_total_open_positions();
         if open_positions >= config.risk.max_open_positions {
-            warn!("Max open positions ({}) reached", open_positions);
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "RISK".to_string(),
+                message: format!("Max open positions ({}) reached", open_positions),
+            });
             return false;
         }
         
         // Extended checks for slippage and portfolio max open pos would happen here, querying PositionTracker/MemoryStore
         // Simple slippage check (assuming intent.price is already close to market odds)
         if intent.price < rust_decimal_macros::dec!(0.01) || intent.price > rust_decimal_macros::dec!(0.99) {
-            warn!("Price {} outside safe bounds, likely high slippage or settled market", intent.price);
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "SKIP".to_string(),
+                message: format!("Price {} outside safe bounds (0.01-0.99)", intent.price),
+            });
             return false;
         }
         

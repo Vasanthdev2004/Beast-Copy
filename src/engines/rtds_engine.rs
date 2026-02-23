@@ -1,5 +1,4 @@
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures::{StreamExt, SinkExt};
+use futures::future::join_all;
 use serde_json::Value;
 use std::time::Duration;
 use tracing::{info, error, warn};
@@ -8,129 +7,151 @@ use crate::types::{TradeEvent, Side};
 use alloy_primitives::Address;
 use rust_decimal::Decimal;
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
+/// RtdsEngine has been re-purposed as a Gamma REST API poller since the 
+/// Polymarket CLOB WebSocket requires knowing ALL `asset_ids` in advance, 
+/// making global wallet tracking impossible via a single WS connection.
 pub struct RtdsEngine {
-    url: String,
     tx: broadcast::Sender<TradeEvent>,
     watched_wallets: Vec<Address>,
+    seen_hashes: Arc<RwLock<std::collections::HashSet<String>>>,
+    client: reqwest::Client,
 }
 
 impl RtdsEngine {
     pub fn new(tx: broadcast::Sender<TradeEvent>, wallets: Vec<Address>) -> Self {
         Self {
-            url: "wss://ws-subscriptions-clob.polymarket.com/ws/market".to_string(),
             tx,
             watched_wallets: wallets,
+            seen_hashes: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            client: reqwest::Client::new(),
         }
     }
 
     pub async fn run(&self) {
-        let mut backoff = Duration::from_secs(1);
-        let max_backoff = Duration::from_secs(30);
+        if self.watched_wallets.is_empty() {
+            warn!("No wallets configured for tracking. Gamma API poller idle.");
+            return;
+        }
 
+        info!("Starting Gamma API poller for {} wallets", self.watched_wallets.len());
+
+        let mut backoff = Duration::from_secs(2);
+        
         loop {
-            info!("Connecting to RTDS at {}", self.url);
-            match connect_async(&self.url).await {
-                Ok((ws_stream, _)) => {
-                    info!("Connected to RTDS");
-                    backoff = Duration::from_secs(1); // Reset backoff
-
-                    let (mut write, mut read) = ws_stream.split();
-
-                    let sub_msg = serde_json::json!({
-                        "assets_ids": [],
-                        "type": "market",
-                        "action": "subscribe"
-                    });
-                    
-                    if let Err(e) = write.send(Message::Text(sub_msg.to_string())).await {
-                        error!("Failed to send subscribe message: {}", e);
-                        continue;
-                    }
-
-                    // Ping task
-                    let (ping_tx, mut ping_rx) = tokio::sync::mpsc::channel::<()>(1);
-                    let ping_task = tokio::spawn(async move {
-                        loop {
-                            tokio::time::sleep(Duration::from_secs(5)).await;
-                            if ping_tx.send(()).await.is_err() {
-                                break;
-                            }
-                        }
-                    });
-
-                    loop {
-                        tokio::select! {
-                            _ = ping_rx.recv() => {
-                                if let Err(e) = write.send(Message::Ping(vec![].into())).await {
-                                    error!("Ping failed: {}", e);
-                                    break;
-                                }
-                            }
-                            msg = read.next() => {
-                                match msg {
-                                    Some(Ok(Message::Text(text))) => {
-                                        self.handle_message(&text);
-                                    }
-                                    Some(Ok(Message::Close(_))) | None => {
-                                        warn!("RTDS WebSocket closed");
-                                        break;
-                                    }
-                                    Some(Err(e)) => {
-                                        error!("RTDS WebSocket error: {}", e);
-                                        break;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                    ping_task.abort();
-                }
-                Err(e) => {
-                    error!("Failed to connect to RTDS: {}. Retrying in {:?}", e, backoff);
-                    tokio::time::sleep(backoff).await;
-                    backoff = std::cmp::min(backoff * 2, max_backoff);
+            let mut tasks = vec![];
+            
+            for wallet in &self.watched_wallets {
+                let wallet_str = format!("{:?}", wallet);
+                let client = self.client.clone();
+                let seen_hashes = self.seen_hashes.clone();
+                let tx = self.tx.clone();
+                
+                tasks.push(tokio::spawn(async move {
+                    Self::poll_wallet(client, wallet_str, seen_hashes, tx).await;
+                }));
+            }
+            
+            // Wait for all wallet polls to finish
+            join_all(tasks).await;
+            
+            // Cleanup cache every so often to prevent memory leak (rough size bound)
+            {
+                let mut cache = self.seen_hashes.write().await;
+                if cache.len() > 10000 {
+                    cache.clear();
                 }
             }
+
+            tokio::time::sleep(backoff).await;
         }
     }
 
-    fn handle_message(&self, text: &str) {
-        let Ok(val): Result<Value, _> = serde_json::from_str(text) else { return };
+    async fn poll_wallet(
+        client: reqwest::Client, 
+        wallet: String, 
+        seen_hashes: Arc<RwLock<std::collections::HashSet<String>>>,
+        tx: broadcast::Sender<TradeEvent>
+    ) {
+        // Polymarket Data API - public endpoint for user activity
+        // Returns: transactionHash, asset, side (BUY/SELL), price, size, usdcSize, title, conditionId, timestamp
+        let url = format!(
+            "https://data-api.polymarket.com/activity?user={}&limit=30&offset=0",
+            wallet
+        );
         
-        if let Some(events) = val.as_array() {
-            for event in events {
-                if let (Some(wallet_str), Some(asset_id), Some(side_str), Some(size_str), Some(price_str)) = (
-                    event.get("maker").and_then(|v| v.as_str()),
-                    event.get("asset_id").and_then(|v| v.as_str()),
-                    event.get("side").and_then(|v| v.as_str()),
-                    event.get("size").and_then(|v| v.as_str()),
-                    event.get("price").and_then(|v| v.as_str())
-                ) {
-                    if let Ok(wallet) = Address::from_str(wallet_str) {
-                        if self.watched_wallets.contains(&wallet) {
-                            let side = if side_str.eq_ignore_ascii_case("YES") {
-                                Side::Yes
-                            } else {
-                                Side::No
-                            };
+        match client.get(&url).send().await {
+            Ok(res) => {
+                if let Ok(json) = res.json::<Value>().await {
+                    if let Some(trades) = json.as_array() {
+                        let mut cache = seen_hashes.write().await;
+                        for trade in trades {
+                            // Only process TRADE type events
+                            let trade_type = trade.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            if trade_type != "TRADE" {
+                                continue;
+                            }
 
-                            let trade = TradeEvent {
-                                asset_id: asset_id.to_string(),
-                                wallet,
-                                side,
-                                size: Decimal::from_str(size_str).unwrap_or_default(),
-                                price: Decimal::from_str(price_str).unwrap_or_default(),
-                                market_id: event.get("market_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                timestamp_ms: event.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
-                            };
+                            // Use transactionHash as unique dedup key
+                            let tx_hash = trade.get("transactionHash").and_then(|v| v.as_str()).unwrap_or("");
+                            if tx_hash.is_empty() || cache.contains(tx_hash) {
+                                continue;
+                            }
+                            cache.insert(tx_hash.to_string());
+                            
+                            // Extract trade details from Data API response
+                            let asset_id = trade.get("asset").and_then(|v| v.as_str()).unwrap_or("");
+                            let side_str = trade.get("side").and_then(|v| v.as_str()).unwrap_or("BUY");
+                            let condition_id = trade.get("conditionId").and_then(|v| v.as_str()).unwrap_or("");
+                            let title = trade.get("title").and_then(|v| v.as_str()).unwrap_or("Unknown");
 
-                            let _ = self.tx.send(trade);
+                            // Data API returns numbers directly, not strings
+                            let price = trade.get("price")
+                                .and_then(|v| v.as_f64())
+                                .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                                .unwrap_or_default();
+                            let size = trade.get("size")
+                                .and_then(|v| v.as_f64())
+                                .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                                .unwrap_or_default();
+                            let usdc_size = trade.get("usdcSize")
+                                .and_then(|v| v.as_f64())
+                                .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                                .unwrap_or(size);
+                            let timestamp = trade.get("timestamp")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+
+                            if asset_id.is_empty() {
+                                continue;
+                            }
+                            
+                            let side = if side_str.eq_ignore_ascii_case("BUY") { Side::Yes } else { Side::No };
+
+                            if let Ok(wallet_addr) = Address::from_str(&wallet) {
+                                let event = TradeEvent {
+                                    asset_id: asset_id.to_string(),
+                                    wallet: wallet_addr,
+                                    side,
+                                    size: usdc_size,  // Use USDC size for copy sizing
+                                    price,
+                                    market_id: condition_id.to_string(),
+                                    timestamp_ms: timestamp * 1000,
+                                };
+                                info!("[RTDS] New trade: {} {} ${} @ {} — {}", 
+                                    side_str, title, usdc_size, price, &wallet[..10]);
+                                let _ = tx.send(event);
+                            }
                         }
                     }
                 }
+            }
+            Err(e) => {
+                warn!("Failed to fetch activity for {}: {}", wallet, e);
             }
         }
     }
 }
+

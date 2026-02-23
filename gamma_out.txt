@@ -1,0 +1,35 @@
+   Compiling poly-apex-copy v0.1.0 (D:\Poly Projects\New Era\Beast-Copy)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.07s
+warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 4`
+     Running `target\debug\examples\gamma_test.exe`
+
+=== https://data-api.polymarket.com/activity?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
+Status: 200 OK | Size: 2 bytes
+[]
+
+=== https://data-api.polymarket.com/activity?user=0x2c7202074da07249e447636a714d04e70e365e72&limit=5 ===
+Status: 200 OK | Size: 2 bytes
+[]
+
+=== https://data-api.polymarket.com/trades?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
+Status: 200 OK | Size: 2 bytes
+[]
+
+=== https://clob.polymarket.com/trades?maker_address=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
+Status: 401 Unauthorized | Size: 41 bytes
+{"error":"Unauthorized/Invalid api key"}
+
+
+=== https://gamma-api.polymarket.com/activity?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
+Status: 404 Not Found | Size: 19 bytes
+404 page not found
+
+
+=== https://data-api.polymarket.com/positions?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
+Status: 200 OK | Size: 2 bytes
+[]
+
+=== https://data-api.polymarket.com/positions?user=0x2c7202074da07249e447636a714d04e70e365e72&limit=5 ===
+Status: 200 OK | Size: 2 bytes
+[]

@@ -15,6 +15,7 @@ pub struct ClobExecutor {
     result_tx: mpsc::Sender<OrderResult>,
     config: Arc<RwLock<AppConfig>>,
     trading_client: Option<Arc<TradingClient>>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
 }
 
 impl ClobExecutor {
@@ -22,6 +23,7 @@ impl ClobExecutor {
         intent_rx: mpsc::Receiver<OrderIntent>,
         result_tx: mpsc::Sender<OrderResult>,
         config: Arc<RwLock<AppConfig>>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
     ) -> Self {
         let pkey_str = std::env::var("WALLET_PRIVATE_KEY").unwrap_or_default();
         let mut trading_client = None;
@@ -58,6 +60,7 @@ impl ClobExecutor {
             result_tx,
             config,
             trading_client,
+            log_tx,
         }
     }
 
@@ -73,7 +76,11 @@ impl ClobExecutor {
         let config = self.config.read().await;
         
         if config.copy.preview_mode {
-            info!("[PREVIEW] Executing order: {:?}", intent);
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "FILL".to_string(),
+                message: format!("PAPER FILL {} @ {}", intent.size, intent.price),
+            });
             
             let result = OrderResult {
                 order_id: format!("preview-{}", chrono::Utc::now().timestamp_millis()),
@@ -111,7 +118,12 @@ impl ClobExecutor {
 
             match client.create_and_post_order(&ord, None, None, options, OrderType::Fok).await {
                 Ok(resp) => {
-                    info!("Order submitted: {:?}", resp);
+                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                        time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                        kind: "FILL".to_string(),
+                        message: format!("LIVE FILL {} @ {} (ID: {})", intent.size, intent.price, resp.order_id),
+                    });
+                    
                     let result = OrderResult {
                         order_id: resp.order_id.as_str().to_string(),
                         status: OrderStatus::Filled, // Need real polling, but resolving optimistic FOK for now
@@ -122,7 +134,12 @@ impl ClobExecutor {
                     let _ = self.result_tx.send(result).await;
                 }
                 Err(e) => {
-                    error!("Order rejection from CLOB: {:?}", e);
+                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                        time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                        kind: "ERR".to_string(),
+                        message: format!("CLOB Rejected: {:?}", e),
+                    });
+                    
                     let result = OrderResult {
                         order_id: "failed".to_string(),
                         status: OrderStatus::Rejected,

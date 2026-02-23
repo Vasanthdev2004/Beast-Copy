@@ -14,6 +14,7 @@ pub struct SettlementMonitor {
     position_tracker: Arc<PositionTracker>,
     config: Arc<RwLock<AppConfig>>,
     consecutive_losses: Arc<AtomicUsize>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
 }
 
 impl SettlementMonitor {
@@ -22,12 +23,14 @@ impl SettlementMonitor {
         position_tracker: Arc<PositionTracker>,
         config: Arc<RwLock<AppConfig>>,
         consecutive_losses: Arc<AtomicUsize>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
     ) -> Self {
         Self {
             result_rx,
             position_tracker,
             config,
             consecutive_losses,
+            log_tx,
         }
     }
 
@@ -43,7 +46,11 @@ impl SettlementMonitor {
         let config = self.config.read().await;
 
         if config.copy.preview_mode {
-            info!("[PREVIEW] Order 'settled' immediately: {}", result.order_id);
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "SETTLE".to_string(),
+                message: format!("PAPER Settled: {}", result.order_id),
+            });
             return;
         }
 
@@ -66,14 +73,28 @@ impl SettlementMonitor {
                         pnl: None,
                     };
                     self.position_tracker.add_position(position);
+
+                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                        time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                        kind: "SETTLE".to_string(),
+                        message: format!("LIVE Settled TX: {:?}", tx_hash),
+                    });
                 }
             }
             OrderStatus::Rejected => {
-                warn!("Order rejected: {}", result.order_id);
+                let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                    time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                    kind: "ERR".to_string(),
+                    message: format!("Order rejected: {}", result.order_id),
+                });
                 self.consecutive_losses.fetch_add(1, Ordering::SeqCst);
             }
             OrderStatus::Timeout => {
-                warn!("Order timed out: {}", result.order_id);
+                let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                    time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                    kind: "ERR".to_string(),
+                    message: format!("Order timed out: {}", result.order_id),
+                });
                 self.consecutive_losses.fetch_add(1, Ordering::SeqCst);
             }
         }
