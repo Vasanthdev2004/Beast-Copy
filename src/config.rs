@@ -82,6 +82,11 @@ impl ConfigManager {
         if let Ok(rpc) = std::env::var("POLYGON_RPC") {
             config.rpc.polygon_rpc = rpc;
         }
+        // LIVE_TRADING=true in .env → preview_mode = false (real orders)
+        // LIVE_TRADING=false in .env → preview_mode = true (paper trading)
+        if let Ok(live) = std::env::var("LIVE_TRADING") {
+            config.copy.preview_mode = live.to_lowercase() != "true";
+        }
         
         Ok(config)
     }

@@ -1,12 +1,4 @@
-warning: unused variable: `signer`
-  --> src\execution\clob_executor.rs:29:19
-   |
-29 |         if let Ok(signer) = PrivateKeySigner::from_str(&pkey_str) {
-   |                   ^^^^^^ help: if this is intentional, prefix it with an underscore: `_signer`
-   |
-   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
-
-warning: `poly-apex-copy` (bin "poly-apex-copy") generated 1 warning (run `cargo fix --bin "poly-apex-copy" -p poly-apex-copy` to apply 1 suggestion)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.70s
+    Checking poly-apex-copy v0.1.0 (D:\Poly Projects\New Era\Beast-Copy)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s
 warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
 note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 3`
