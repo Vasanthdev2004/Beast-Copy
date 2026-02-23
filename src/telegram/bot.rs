@@ -67,7 +67,7 @@ pub async fn start_bot(
                     },
                     "/addwallet" => {
                         if parts.len() > 1 {
-                            if let Ok(addr) = parts[1].parse::<alloy::primitives::Address>() {
+                            if let Ok(addr) = parts[1].parse::<alloy_primitives::Address>() {
                                 wt.add_wallet(addr);
                                 let _ = m_bot.send_message(msg.chat.id, format!("Added {}", parts[1])).await;
                             } else {
@@ -77,7 +77,7 @@ pub async fn start_bot(
                     },
                     "/removewallet" => {
                         if parts.len() > 1 {
-                            if let Ok(addr) = parts[1].parse::<alloy::primitives::Address>() {
+                            if let Ok(addr) = parts[1].parse::<alloy_primitives::Address>() {
                                 if wt.remove_wallet(&addr) {
                                     let _ = m_bot.send_message(msg.chat.id, format!("Removed {}", parts[1])).await;
                                 } else {

@@ -1,4 +1,4 @@
-use alloy::primitives::Address;
+use alloy_primitives::Address;
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;

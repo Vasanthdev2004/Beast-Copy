@@ -1,34 +1,19 @@
+    Checking hashbrown v0.14.5
+    Checking hashlink v0.8.4
+    Checking dashmap v5.5.3
+    Checking sqlx-core v0.7.4
+    Checking sqlx-postgres v0.7.4
+    Checking sqlx v0.7.4
     Checking poly-apex-copy v0.1.0 (D:\Poly Projects\New Era\Beast-Copy)
-error[E0432]: unresolved import `alloy::signers::local`
-   --> src\execution\clob_executor.rs:10:21
-    |
- 10 | use alloy::signers::local::PrivateKeySigner;
-    |                     ^^^^^ could not find `local` in `signers`
-    |
-note: found an item that was configured out
-   --> C:\Users\Vasanth\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\alloy-0.3.6\src\lib.rs:153:35
-    |
-151 |     #[cfg(feature = "signer-local")]
-    |           ------------------------ the item is gated behind the `signer-local` feature
-152 |     #[doc(inline)]
-153 |     pub use alloy_signer_local as local;
-    |                                   ^^^^^
-
-warning: unused import: `std::str::FromStr`
-  --> src\execution\clob_executor.rs:11:5
+warning: unused variable: `signer`
+  --> src\execution\clob_executor.rs:29:19
    |
-11 | use std::str::FromStr;
-   |     ^^^^^^^^^^^^^^^^^
+29 |         if let Ok(signer) = PrivateKeySigner::from_str(&pkey_str) {
+   |                   ^^^^^^ help: if this is intentional, prefix it with an underscore: `_signer`
    |
-   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
-error[E0282]: type annotations needed
-  --> src\execution\clob_executor.rs:41:42
-   |
-41 |                 let eth_signer_builder = signer.clone();
-   |                                          ^^^^^^ cannot infer type
-
-Some errors have detailed explanations: E0282, E0432.
-For more information about an error, try `rustc --explain E0282`.
-warning: `poly-apex-copy` (bin "poly-apex-copy") generated 1 warning
-error: could not compile `poly-apex-copy` (bin "poly-apex-copy") due to 2 previous errors; 1 warning emitted
+warning: `poly-apex-copy` (bin "poly-apex-copy") generated 1 warning (run `cargo fix --bin "poly-apex-copy" -p poly-apex-copy` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.48s
+warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 3`

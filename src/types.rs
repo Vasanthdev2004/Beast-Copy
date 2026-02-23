@@ -1,4 +1,4 @@
-use alloy::primitives::{Address, B256 as H256};
+use alloy_primitives::{Address, B256 as H256};
 use rust_decimal::Decimal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

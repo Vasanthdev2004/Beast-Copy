@@ -61,7 +61,7 @@ impl SettlementMonitor {
                         side: Side::Yes,
                         size: rust_decimal_macros::dec!(10.0),
                         entry_price: result.filled_at,
-                        source_wallet: alloy::primitives::Address::default(),
+                        source_wallet: alloy_primitives::Address::default(),
                         opened_at: result.timestamp,
                         pnl: None,
                     };

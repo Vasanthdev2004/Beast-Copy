@@ -7,7 +7,7 @@ use crate::config::AppConfig;
 use polymarket_rs::client::TradingClient;
 use polymarket_rs::types::{OrderArgs, OrderType, ApiCreds, CreateOrderOptions};
 use polymarket_rs::orders::OrderBuilder;
-use alloy::signers::local::PrivateKeySigner;
+use alloy_signer_local::PrivateKeySigner;
 use std::str::FromStr;
 
 pub struct ClobExecutor {
@@ -38,8 +38,8 @@ impl ClobExecutor {
                     passphrase: poly_passphrase,
                 };
                 
-                let eth_signer_builder = signer.clone();
-                let eth_signer_client = signer;
+                let eth_signer_builder = PrivateKeySigner::from_str(&pkey_str).unwrap();
+                let eth_signer_client = PrivateKeySigner::from_str(&pkey_str).unwrap();
                 let order_builder = OrderBuilder::new(eth_signer_builder, None, None);
                 
                 let client = TradingClient::new(

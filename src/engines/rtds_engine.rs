@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::{info, error, warn};
 use tokio::sync::broadcast;
 use crate::types::{TradeEvent, Side};
-use alloy::primitives::Address;
+use alloy_primitives::Address;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
