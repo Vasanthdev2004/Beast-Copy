@@ -140,12 +140,18 @@ async fn main() -> anyhow::Result<()> {
     let tg_bot_state = bot_state.clone();
     let tg_wt = wallet_tracker.clone();
     let tg_pt = position_tracker.clone();
+    let tg_balance = usdc_balance.clone();
+    let tg_initial_balance = initial_balance;
+    let tg_start_time = std::time::Instant::now();
     tokio::spawn(async move {
         telegram::bot::start_bot(
             tg_config,
             tg_bot_state,
             tg_wt,
             tg_pt,
+            tg_balance,
+            tg_initial_balance,
+            tg_start_time,
         ).await;
     });
 
