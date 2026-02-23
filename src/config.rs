@@ -16,6 +16,8 @@ pub struct WalletsConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CopyConfig {
     pub preview_mode: bool,
+    #[serde(default = "default_paper_balance")]
+    pub paper_balance_usdc: f64,
     pub copy_ratio: f64,
     pub sizing_mode: String,
     pub fixed_usdc: f64,
@@ -25,6 +27,8 @@ pub struct CopyConfig {
     pub cooldown_per_market_secs: u64,
     pub dedup_window_secs: u64,
 }
+
+fn default_paper_balance() -> f64 { 1000.0 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RiskConfig {

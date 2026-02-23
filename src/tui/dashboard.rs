@@ -22,7 +22,7 @@ use crate::types::BotState;
 #[derive(Clone)]
 pub struct LogEntry {
     pub time: String,
-    pub kind: String,  // COPY, SKIP, FILL, RISK, etc.
+    pub kind: String,
     pub message: String,
 }
 
@@ -35,6 +35,8 @@ pub struct DashboardState {
     pub consecutive_losses: Arc<AtomicUsize>,
     pub trade_log: Arc<RwLock<Vec<LogEntry>>>,
     pub usdc_balance: Arc<RwLock<Decimal>>,
+    pub initial_balance: Decimal,
+    pub start_time: std::time::Instant,
 }
 
 impl DashboardState {
@@ -45,6 +47,7 @@ impl DashboardState {
         position_tracker: Arc<PositionTracker>,
         consecutive_losses: Arc<AtomicUsize>,
         usdc_balance: Arc<RwLock<Decimal>>,
+        initial_balance: Decimal,
     ) -> Self {
         Self {
             config,
@@ -54,23 +57,9 @@ impl DashboardState {
             consecutive_losses,
             trade_log: Arc::new(RwLock::new(Vec::new())),
             usdc_balance,
+            initial_balance,
+            start_time: std::time::Instant::now(),
         }
-    }
-}
-
-/// Push a log entry to the dashboard feed (call from any module)
-pub async fn push_log(state: &DashboardState, kind: &str, message: &str) {
-    let entry = LogEntry {
-        time: chrono::Utc::now().format("%H:%M:%S").to_string(),
-        kind: kind.to_string(),
-        message: message.to_string(),
-    };
-    let mut log = state.trade_log.write().await;
-    log.push(entry);
-    // Keep last 200 entries
-    if log.len() > 200 {
-        let drain_to = log.len() - 200;
-        log.drain(0..drain_to);
     }
 }
 
@@ -84,14 +73,14 @@ pub async fn run_dashboard(
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     loop {
-        // Drain incoming logs without blocking
+        // Drain incoming logs
         {
             let mut log = state.trade_log.write().await;
             while let Ok(entry) = log_rx.try_recv() {
                 log.push(entry);
             }
-            if log.len() > 200 {
-                let drain_to = log.len() - 200;
+            if log.len() > 500 {
+                let drain_to = log.len() - 500;
                 log.drain(0..drain_to);
             }
         }
@@ -103,14 +92,12 @@ pub async fn run_dashboard(
         let losses = state.consecutive_losses.load(Ordering::Relaxed);
         let log_entries = state.trade_log.read().await.clone();
 
-        // Positions
         let positions: Vec<_> = state.position_tracker.positions.iter()
             .map(|e| e.value().clone())
             .collect();
         let open_count = positions.len();
-        let max_positions = config.risk.max_open_positions;
+        let _max_positions = config.risk.max_open_positions;
 
-        // Wallets
         let wallets: Vec<_> = state.wallet_tracker.scores.iter()
             .map(|e| e.value().clone())
             .collect();
@@ -118,16 +105,28 @@ pub async fn run_dashboard(
         let preview = config.copy.preview_mode;
         let loss_halt = config.risk.consecutive_loss_halt;
 
+        // Compute stats
+        let session_pnl = balance - state.initial_balance;
+        let elapsed = state.start_time.elapsed();
+        let uptime_str = format!("{}m {}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60);
+
+        // Count trade types from log
+        let copy_count = log_entries.iter().filter(|e| e.kind == "COPY").count();
+        let fill_count = log_entries.iter().filter(|e| e.kind == "FILL").count();
+        let skip_count = log_entries.iter().filter(|e| e.kind == "SKIP" || e.kind == "RISK").count();
+        let hist_count = log_entries.iter().filter(|e| e.kind == "HIST").count();
+
         terminal.draw(|frame| {
             let area = frame.area();
 
-            // Main layout: header + body
+            // Main layout: header + pnl bar + body + footer
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3),   // Header
+                    Constraint::Length(3),   // P&L Bar
                     Constraint::Min(10),     // Body
-                    Constraint::Length(3),    // Footer / Risk bar
+                    Constraint::Length(3),   // Footer
                 ])
                 .split(area);
 
@@ -145,137 +144,82 @@ pub async fn run_dashboard(
                 BotState::Halted => Color::Red,
             };
 
-            let balance_str = format!(" │ Balance: ${} USDC ", balance);
-            let positions_str = format!("│ Positions: {}/{} ", open_count, max_positions);
-
             let header_text = Line::from(vec![
-                Span::styled(" ◆ POLY-APEX ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(" ◆ POLYMARKET COPY TRADER ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::raw("│ "),
-                Span::styled(state_str, Style::default().fg(state_color).add_modifier(Modifier::BOLD)),
-                Span::raw(" │ Mode: "),
                 Span::styled(mode_str, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-                Span::raw(&balance_str),
-                Span::raw(&positions_str),
+                Span::raw(" │ "),
+                Span::styled(state_str, Style::default().fg(state_color).add_modifier(Modifier::BOLD)),
+                Span::raw(" │ ⏱ "),
+                Span::styled(&uptime_str, Style::default().fg(Color::White)),
             ]);
             let header = Paragraph::new(header_text)
                 .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
             frame.render_widget(header, main_chunks[0]);
 
-            // ── Body: left (positions + wallets) | right (trade feed) ──
+            // ── P&L Status Bar ──
+            let pnl_color = if session_pnl >= Decimal::ZERO { Color::Green } else { Color::Red };
+            let pnl_sign = if session_pnl >= Decimal::ZERO { "+" } else { "" };
+
+            let pnl_text = Line::from(vec![
+                Span::styled(" 📈 P&L: ", Style::default().fg(Color::White)),
+                Span::styled(
+                    format!("{}{:.2}", pnl_sign, session_pnl.round_dp(2)),
+                    Style::default().fg(pnl_color).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("  │  "),
+                Span::styled("Portfolio: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("${:.2}", balance.round_dp(2)),
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("  │  "),
+                Span::styled("Positions: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{}", open_count),
+                    Style::default().fg(Color::White),
+                ),
+                Span::raw("  │  "),
+                Span::styled("Fills: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{}", fill_count),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw("  │  "),
+                Span::styled("Skipped: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{}", skip_count),
+                    Style::default().fg(Color::Yellow),
+                ),
+            ]);
+            let pnl_bar = Paragraph::new(pnl_text)
+                .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Blue)));
+            frame.render_widget(pnl_bar, main_chunks[1]);
+
+            // ── Body: left (trade feed) | right (positions + stats + whale) ──
             let body_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
                     Constraint::Percentage(55),
                     Constraint::Percentage(45),
                 ])
-                .split(main_chunks[1]);
+                .split(main_chunks[2]);
 
-            // Left: Positions on top, Wallets on bottom
-            let left_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(55),
-                    Constraint::Percentage(45),
-                ])
-                .split(body_chunks[0]);
-
-            // ── Positions Table ──
-            let pos_header = Row::new(vec!["Market", "Side", "Size", "Entry", "P&L"])
-                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-                .bottom_margin(1);
-
-            let pos_rows: Vec<Row> = positions.iter().map(|p| {
-                let side_str = match p.side {
-                    crate::types::Side::Yes => "YES",
-                    crate::types::Side::No => "NO",
-                };
-                let pnl_str = p.pnl.map(|v| format!("{}", v)).unwrap_or_else(|| "—".to_string());
-                let pnl_color = p.pnl.map(|v| {
-                    if v > Decimal::ZERO { Color::Green } else { Color::Red }
-                }).unwrap_or(Color::DarkGray);
-
-                let market_short = if p.market_id.len() > 20 {
-                    format!("{}…", &p.market_id[..20])
-                } else {
-                    p.market_id.clone()
-                };
-
-                Row::new(vec![
-                    Cell::from(market_short),
-                    Cell::from(side_str).style(Style::default().fg(
-                        if side_str == "YES" { Color::Green } else { Color::Red }
-                    )),
-                    Cell::from(format!("${}", p.size)),
-                    Cell::from(format!("{}", p.entry_price)),
-                    Cell::from(pnl_str).style(Style::default().fg(pnl_color)),
-                ])
-            }).collect();
-
-            let pos_table = Table::new(
-                pos_rows,
-                [
-                    Constraint::Percentage(35),
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(18),
-                    Constraint::Percentage(18),
-                    Constraint::Percentage(19),
-                ],
-            )
-            .header(pos_header)
-            .block(Block::default()
-                .title(format!(" Open Positions ({}/{}) ", open_count, max_positions))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue)));
-            frame.render_widget(pos_table, left_chunks[0]);
-
-            // ── Wallets Table ──
-            let wal_header = Row::new(vec!["Address", "Win%", "Trades", "PnL"])
-                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-                .bottom_margin(1);
-
-            let wal_rows: Vec<Row> = wallets.iter().take(10).map(|w| {
-                let addr_short = format!("0x{}…{}", 
-                    &format!("{:?}", w.address)[2..6],
-                    &format!("{:?}", w.address)[38..42],
-                );
-                let wr_color = if w.win_rate >= 55.0 { Color::Green } else { Color::Yellow };
-                Row::new(vec![
-                    Cell::from(addr_short),
-                    Cell::from(format!("{:.1}%", w.win_rate)).style(Style::default().fg(wr_color)),
-                    Cell::from(format!("{}", w.trade_count)),
-                    Cell::from(format!("{}", w.total_pnl)),
-                ])
-            }).collect();
-
-            let wal_table = Table::new(
-                wal_rows,
-                [
-                    Constraint::Percentage(35),
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(25),
-                ],
-            )
-            .header(wal_header)
-            .block(Block::default()
-                .title(format!(" Tracked Wallets ({}) ", wallets.len()))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Magenta)));
-            frame.render_widget(wal_table, left_chunks[1]);
-
-            // ── Trade Feed (right panel) ──
-            let feed_items: Vec<ListItem> = log_entries.iter().rev().take(50).map(|entry| {
+            // ── Left: Live Trade Feed ──
+            let feed_items: Vec<ListItem> = log_entries.iter().rev().take(100).map(|entry| {
                 let kind_color = match entry.kind.as_str() {
                     "COPY" => Color::Green,
                     "FILL" => Color::Cyan,
                     "SKIP" => Color::DarkGray,
                     "RISK" => Color::Yellow,
                     "ERR" => Color::Red,
+                    "HIST" => Color::Blue,
+                    "SETTLE" => Color::Magenta,
                     _ => Color::White,
                 };
                 ListItem::new(Line::from(vec![
                     Span::styled(&entry.time, Style::default().fg(Color::DarkGray)),
-                    Span::raw("  "),
+                    Span::raw(" "),
                     Span::styled(
                         format!("{:<5}", entry.kind),
                         Style::default().fg(kind_color).add_modifier(Modifier::BOLD),
@@ -287,10 +231,157 @@ pub async fn run_dashboard(
 
             let feed = List::new(feed_items)
                 .block(Block::default()
-                    .title(" Live Trade Feed ")
+                    .title(" ⚡ LIVE TRADE FEED ")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Green)));
-            frame.render_widget(feed, body_chunks[1]);
+            frame.render_widget(feed, body_chunks[0]);
+
+            // ── Right: split into positions + statistics + whale info ──
+            let right_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(45),  // Paper Positions
+                    Constraint::Percentage(30),  // Statistics
+                    Constraint::Percentage(25),  // Target Whale
+                ])
+                .split(body_chunks[1]);
+
+            // ── Paper Positions Table ──
+            let pos_header = Row::new(vec!["Market", "Side", "Size", "Entry", "P&L"])
+                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .bottom_margin(1);
+
+            let pos_rows: Vec<Row> = positions.iter().map(|p| {
+                let side_str = match p.side {
+                    crate::types::Side::Yes => "YES",
+                    crate::types::Side::No => "NO",
+                };
+                let pnl_str = p.pnl.map(|v| format!("{:+.2}", v.round_dp(2))).unwrap_or_else(|| "—".to_string());
+                let pnl_color = p.pnl.map(|v| {
+                    if v > Decimal::ZERO { Color::Green } else { Color::Red }
+                }).unwrap_or(Color::DarkGray);
+
+                let market_short = if p.market_id.len() > 16 {
+                    format!("{}…", &p.market_id[..16])
+                } else {
+                    p.market_id.clone()
+                };
+
+                Row::new(vec![
+                    Cell::from(market_short),
+                    Cell::from(side_str).style(Style::default().fg(
+                        if side_str == "YES" { Color::Green } else { Color::Red }
+                    )),
+                    Cell::from(format!("${:.2}", p.size.round_dp(2))),
+                    Cell::from(format!("¢{}", (p.entry_price * Decimal::from(100)).round_dp(0))),
+                    Cell::from(pnl_str).style(Style::default().fg(pnl_color)),
+                ])
+            }).collect();
+
+            // Total row
+            let total_value: Decimal = positions.iter().map(|p| p.size).sum();
+
+            let mut all_rows = pos_rows;
+            if !positions.is_empty() {
+                all_rows.push(Row::new(vec![
+                    Cell::from("TOTAL").style(Style::default().add_modifier(Modifier::BOLD)),
+                    Cell::from(""),
+                    Cell::from(format!("${:.2}", total_value.round_dp(2)))
+                        .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Cell::from(""),
+                    Cell::from(format!("{:+.2}", session_pnl.round_dp(2)))
+                        .style(Style::default().fg(pnl_color).add_modifier(Modifier::BOLD)),
+                ]).bottom_margin(0));
+            }
+
+            let pos_table = Table::new(
+                all_rows,
+                [
+                    Constraint::Percentage(30),
+                    Constraint::Percentage(12),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(18),
+                    Constraint::Percentage(20),
+                ],
+            )
+            .header(pos_header)
+            .block(Block::default()
+                .title(" 📋 PAPER POSITIONS ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow)));
+            frame.render_widget(pos_table, right_chunks[0]);
+
+            // ── Statistics Panel ──
+            let whale_volume: Decimal = log_entries.iter()
+                .filter(|e| e.kind == "HIST" || e.kind == "COPY")
+                .filter_map(|e| {
+                    // Extract dollar amounts from messages like "BUY Up $3.00 @¢28"
+                    e.message.split('$').nth(1).and_then(|s| {
+                        s.split_whitespace().next().and_then(|n| n.parse::<f64>().ok())
+                    })
+                })
+                .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                .sum();
+
+            let avg_trade = if (hist_count + copy_count) > 0 {
+                whale_volume / Decimal::from(hist_count + copy_count)
+            } else {
+                Decimal::ZERO
+            };
+
+            let stats_text = vec![
+                Line::from(vec![
+                    Span::styled("  Whale Trades: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("{}", hist_count + copy_count), Style::default().fg(Color::White)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Whale Volume: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("${:.2}", whale_volume.round_dp(2)), Style::default().fg(Color::Green)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Avg Trade:    ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("${:.2}", avg_trade.round_dp(2)), Style::default().fg(Color::White)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Paper Fills:  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("{}", fill_count), Style::default().fg(Color::Cyan)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Skipped:      ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("{}", skip_count), Style::default().fg(Color::Yellow)),
+                ]),
+            ];
+
+            let stats = Paragraph::new(stats_text)
+                .block(Block::default()
+                    .title(" 📊 STATISTICS ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)));
+            frame.render_widget(stats, right_chunks[1]);
+
+            // ── Target Whale Panel ──
+            let whale_lines: Vec<Line> = wallets.iter().take(3).map(|w| {
+                let addr_short = format!("0x{}…{}", 
+                    &format!("{:?}", w.address)[2..8],
+                    &format!("{:?}", w.address)[38..42],
+                );
+                let wr_color = if w.win_rate >= 55.0 { Color::Green } else { Color::Yellow };
+                Line::from(vec![
+                    Span::styled("  Address: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(addr_short, Style::default().fg(Color::White)),
+                    Span::raw("  │  "),
+                    Span::styled(format!("{:.1}%", w.win_rate), Style::default().fg(wr_color)),
+                    Span::raw("  │  Trades: "),
+                    Span::styled(format!("{}", w.trade_count), Style::default().fg(Color::White)),
+                ])
+            }).collect();
+
+            let whale_info = Paragraph::new(whale_lines)
+                .block(Block::default()
+                    .title(" 🐋 TARGET WHALE ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Magenta)));
+            frame.render_widget(whale_info, right_chunks[2]);
 
             // ── Footer / Risk Bar ──
             let loss_pct = if loss_halt > 0 {
@@ -299,7 +390,7 @@ pub async fn run_dashboard(
 
             let risk_gauge = Gauge::default()
                 .block(Block::default()
-                    .title(format!(" Risk │ Losses: {}/{} │ {} ",
+                    .title(format!(" Risk │ Losses: {}/{} │ {} │ [P]ause  [Q]uit ",
                         losses, loss_halt,
                         if losses >= loss_halt { "⚠ HALTED" } else { "OK" }
                     ))
@@ -312,7 +403,7 @@ pub async fn run_dashboard(
                 ))
                 .ratio(loss_pct as f64 / 100.0)
                 .label(format!("{}%", loss_pct));
-            frame.render_widget(risk_gauge, main_chunks[2]);
+            frame.render_widget(risk_gauge, main_chunks[3]);
         })?;
 
         // Handle input (non-blocking, 250ms tick)

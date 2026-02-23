@@ -13,6 +13,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::info;
 
 use crate::types::{BotState, TradeEvent, OrderIntent, OrderResult};
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 #[tokio::main]
@@ -33,7 +34,9 @@ async fn main() -> anyhow::Result<()> {
     let consecutive_losses = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let wallet_tracker = engines::wallet_tracker::WalletTracker::new(config.clone()).await;
     let position_tracker = engines::position_tracker::PositionTracker::new(config.clone());
-    let usdc_balance = Arc::new(RwLock::new(dec!(0)));
+    let initial_balance = Decimal::from_f64_retain(config.read().await.copy.paper_balance_usdc)
+        .unwrap_or(dec!(1000));
+    let usdc_balance = Arc::new(RwLock::new(initial_balance));
 
     // 4. Channels (Event Bus)
     // RTDS -> CopyEngine
@@ -51,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     
     // RTDS Engine
     let rtds_wallets = wallet_tracker.scores.iter().map(|kv| *kv.key()).collect();
-    let rtds_engine = engines::rtds_engine::RtdsEngine::new(trade_tx, rtds_wallets);
+    let rtds_engine = engines::rtds_engine::RtdsEngine::new(trade_tx, rtds_wallets, log_tx.clone());
 
     // Copy Engine
     let copy_engine = engines::copy_engine::CopyEngine::new(
@@ -81,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
         result_tx,
         config.clone(),
         log_tx.clone(),
+        position_tracker.clone(),
+        usdc_balance.clone(),
     ).await;
 
     // Settlement Monitor
@@ -154,6 +159,7 @@ async fn main() -> anyhow::Result<()> {
         position_tracker.clone(),
         consecutive_losses,
         usdc_balance,
+        initial_balance,
     ));
 
     tui::dashboard::run_dashboard(dashboard_state, log_rx).await.ok();

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::types::{OrderResult, OrderStatus, Position, Side};
 use crate::config::AppConfig;

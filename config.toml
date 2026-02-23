@@ -5,6 +5,7 @@ max_watched_wallets = 20
 
 [copy]
 preview_mode = true
+paper_balance_usdc = 1000.0
 copy_ratio = 0.5
 sizing_mode = "kelly"
 fixed_usdc = 10.0

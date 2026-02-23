@@ -1,35 +1,8 @@
    Compiling poly-apex-copy v0.1.0 (D:\Poly Projects\New Era\Beast-Copy)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.07s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.56s
 warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
 note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 4`
      Running `target\debug\examples\gamma_test.exe`
-
-=== https://data-api.polymarket.com/activity?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
-Status: 200 OK | Size: 2 bytes
-[]
-
-=== https://data-api.polymarket.com/activity?user=0x2c7202074da07249e447636a714d04e70e365e72&limit=5 ===
-Status: 200 OK | Size: 2 bytes
-[]
-
-=== https://data-api.polymarket.com/trades?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
-Status: 200 OK | Size: 2 bytes
-[]
-
-=== https://clob.polymarket.com/trades?maker_address=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
-Status: 401 Unauthorized | Size: 41 bytes
-{"error":"Unauthorized/Invalid api key"}
-
-
-=== https://gamma-api.polymarket.com/activity?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
-Status: 404 Not Found | Size: 19 bytes
-404 page not found
-
-
-=== https://data-api.polymarket.com/positions?user=0x2c7202074DA07249e447636A714D04e70E365e72&limit=5 ===
-Status: 200 OK | Size: 2 bytes
-[]
-
-=== https://data-api.polymarket.com/positions?user=0x2c7202074da07249e447636a714d04e70e365e72&limit=5 ===
-Status: 200 OK | Size: 2 bytes
-[]
+Fetching https://data-api.polymarket.com/activity?user=0x1d0034134e339a309700ff2d34e99fa2d48b0313&limit=5&offset=0
+Status: 200 OK | Size: 3853 bytes
+[{"proxyWallet":"0x1d0034134e339a309700ff2d34e99fa2d48b0313","timestamp":1771869728,"conditionId":"0xed67f16126aeedb429855d118bffcbce21bbc70984ba8162ff37dafde8b0996b","type":"TRADE","size":12,"usdcSize":3,"transactionHash":"0x45944631d360b19746a7e460878294a33135ac572479fd233f8405dff71729f4","price":0.25,"asset":"86849791625880457595443574114925551253876568204426066363905706095539400924193","side":"BUY","outcomeIndex":0,"title":"Ethereum Up or Down - February 23, 1:00PM-1:05PM ET","slug":"eth-updown-5m-1771869600","icon":"https://polymarket-upload.s3.us-east-2.amazonaws.com/ETH+fullsize.jpg","eventSlug":"eth-updown-5m-1771869600","outcome":"Up","name":"0x1d0034134e","pseudonym":"Canine-Commandment","bio":"","profileImage":"","profileImageOptimized":""},{"proxyWallet":"0x1d0034134e339a309700ff2d34e99fa2d48b0313","timestamp":1771869728,"conditionId":"0xf14e01ea5e3a0ea0ec133abef842d861b301761edbfa7f5017a06532a7833e82","type":"TRADE","size":75.5136,"usdcSize":60.8,"transactionHash":"0x18c76305f14616a06917cf3e9b9f7c1b25043c7826c4f8e01235fb5191edcc7c","price":0.8,"asset":"112487921825718979154957791341787756805480030914074754324774180299577432022551","side":"BUY","outcomeIndex":1,"title":"Solana Up or Down - February 23, 1:00PM-1:05PM ET","slug":"sol-updown-5m-1771869600","icon":"https://polymarket-upload.s3.us-east-2.amazonaws.com/SOL+fullsize.png","eventSlug":"sol-updown-5m-1771869600","outcome":"Down","name":"0x1d0034134e","pseudonym":"Canine-Commandment","bio":"","profileImage":"","profileImageOptimized":""},{"proxyWallet":"0x1d0034134e339a309700ff2d34e99fa2d48b0313","timestamp":1771869728,"conditionId":"0xba332c9d02e7c2560b15ca739d0c1fa25cedb0be2c77cefb0991e2b976b09446","type":"TRADE","size":77.6118,"usdcSize":13.26,"transactionHash":"0x71be3f58417ef66736d3996445ad5e006485872334d1a8aeaa6304e2badf089a","price":0.17,"asset":"99899446253155751521824143459216862920882376865972972247586306347879189342858","side":"BUY","outcomeIndex":0,"title":"Bitcoin Up or Down - February

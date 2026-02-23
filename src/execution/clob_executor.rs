@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{info, error};
+use rust_decimal::Decimal;
 
-use crate::types::{OrderIntent, OrderResult, OrderStatus, Side};
+use crate::types::{OrderIntent, OrderResult, OrderStatus, Side, Position};
 use crate::config::AppConfig;
+use crate::engines::position_tracker::PositionTracker;
 use polymarket_rs::client::TradingClient;
 use polymarket_rs::types::{OrderArgs, OrderType, ApiCreds, CreateOrderOptions};
 use polymarket_rs::orders::OrderBuilder;
@@ -16,6 +18,8 @@ pub struct ClobExecutor {
     config: Arc<RwLock<AppConfig>>,
     trading_client: Option<Arc<TradingClient>>,
     log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+    position_tracker: Arc<PositionTracker>,
+    usdc_balance: Arc<RwLock<Decimal>>,
 }
 
 impl ClobExecutor {
@@ -24,6 +28,8 @@ impl ClobExecutor {
         result_tx: mpsc::Sender<OrderResult>,
         config: Arc<RwLock<AppConfig>>,
         log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+        position_tracker: Arc<PositionTracker>,
+        usdc_balance: Arc<RwLock<Decimal>>,
     ) -> Self {
         let pkey_str = std::env::var("WALLET_PRIVATE_KEY").unwrap_or_default();
         let mut trading_client = None;
@@ -47,7 +53,7 @@ impl ClobExecutor {
                 let client = TradingClient::new(
                     "https://clob.polymarket.com",
                     eth_signer_client,
-                    137, // Polygon chain ID
+                    137,
                     api_creds,
                     order_builder,
                 );
@@ -61,6 +67,8 @@ impl ClobExecutor {
             config,
             trading_client,
             log_tx,
+            position_tracker,
+            usdc_balance,
         }
     }
 
@@ -76,27 +84,63 @@ impl ClobExecutor {
         let config = self.config.read().await;
         
         if config.copy.preview_mode {
+            // ── Paper Trading: deduct from balance, track position ──
+            let cost = intent.size.round_dp(2);
+            let price = intent.price.round_dp(2);
+            
+            {
+                let mut bal = self.usdc_balance.write().await;
+                if *bal < cost {
+                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                        time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                        kind: "SKIP".to_string(),
+                        message: format!("Insufficient balance ${:.2} for ${:.2}", *bal, cost),
+                    });
+                    return;
+                }
+                *bal -= cost;
+            }
+
+            // Track as a paper position
+            let position = Position {
+                market_id: intent.market_id.clone(),
+                side: intent.side,
+                size: cost,
+                entry_price: price,
+                source_wallet: intent.source_wallet,
+                opened_at: chrono::Utc::now().timestamp_millis() as u64,
+                pnl: None,
+            };
+            self.position_tracker.positions.insert(
+                format!("paper-{}", chrono::Utc::now().timestamp_millis()),
+                position,
+            );
+
+            let side_str = match intent.side { Side::Yes => "YES", Side::No => "NO" };
+            let bal = *self.usdc_balance.read().await;
             let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
                 time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                 kind: "FILL".to_string(),
-                message: format!("PAPER FILL {} @ {}", intent.size, intent.price),
+                message: format!("{} ${:.2} @¢{} | bal ${:.2}", 
+                    side_str, cost, (price * Decimal::from(100)).round_dp(0), bal),
             });
             
             let result = OrderResult {
-                order_id: format!("preview-{}", chrono::Utc::now().timestamp_millis()),
+                order_id: format!("paper-{}", chrono::Utc::now().timestamp_millis()),
                 status: OrderStatus::Filled,
-                tx_hash: None, // No real tx hash in preview
-                filled_at: intent.price,
+                tx_hash: None,
+                filled_at: price,
                 timestamp: chrono::Utc::now().timestamp_millis() as u64,
             };
             
             if let Err(e) = self.result_tx.send(result).await {
-                error!("Failed to route preview execution result: {}", e);
+                error!("Failed to route preview result: {}", e);
             }
             return;
         }
 
-        info!("Sending actual order to Polymarket CLOB: {:?}", intent);
+        // ── Live Trading ──
+        info!("Sending order to Polymarket CLOB: {:?}", intent);
         
         if let Some(client) = &self.trading_client {
             let side = match intent.side {
@@ -121,12 +165,15 @@ impl ClobExecutor {
                     let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: "FILL".to_string(),
-                        message: format!("LIVE FILL {} @ {} (ID: {})", intent.size, intent.price, resp.order_id),
+                        message: format!("LIVE ${:.2} @¢{} ID:{}", 
+                            intent.size.round_dp(2), 
+                            (intent.price * Decimal::from(100)).round_dp(0),
+                            resp.order_id),
                     });
                     
                     let result = OrderResult {
                         order_id: resp.order_id.as_str().to_string(),
-                        status: OrderStatus::Filled, // Need real polling, but resolving optimistic FOK for now
+                        status: OrderStatus::Filled,
                         tx_hash: None,
                         filled_at: intent.price,
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
@@ -137,7 +184,7 @@ impl ClobExecutor {
                     let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: "ERR".to_string(),
-                        message: format!("CLOB Rejected: {:?}", e),
+                        message: format!("Rejected: {:?}", e),
                     });
                     
                     let result = OrderResult {
@@ -151,7 +198,7 @@ impl ClobExecutor {
                 }
             }
         } else {
-            error!("CLOB Client not initialized. Check API keys and Private Key in .env");
+            error!("CLOB Client not initialized. Check API keys in .env");
         }
     }
 }
