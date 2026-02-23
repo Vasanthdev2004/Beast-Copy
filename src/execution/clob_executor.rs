@@ -26,7 +26,7 @@ impl ClobExecutor {
         let pkey_str = std::env::var("WALLET_PRIVATE_KEY").unwrap_or_default();
         let mut trading_client = None;
         
-        if let Ok(signer) = PrivateKeySigner::from_str(&pkey_str) {
+        if let Ok(_signer) = PrivateKeySigner::from_str(&pkey_str) {
             let poly_key = std::env::var("POLYMARKET_API_KEY").unwrap_or_default();
             let poly_secret = std::env::var("POLYMARKET_API_SECRET").unwrap_or_default();
             let poly_passphrase = std::env::var("POLYMARKET_API_PASSPHRASE").unwrap_or_default();

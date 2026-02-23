@@ -2,3 +2,4 @@
 logs/
 .env
 *.zip
+cargo_out.txt
