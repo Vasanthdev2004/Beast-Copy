@@ -59,53 +59,55 @@ impl CopyEngine {
             }
         });
 
-        let balance_clone = self.portfolio_balance.clone();
-        let config_rpc = self.config.clone();
-        tokio::spawn(async move {
-            let client = reqwest::Client::new();
-            // USDC.e token address on Polygon, commonly used by Polymarket
-            let usdc_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
-            loop {
-                let rpc_url = config_rpc.read().await.rpc.polygon_rpc.clone();
-                let mut wallet_address = std::env::var("WALLET_PUBLIC_ADDRESS").unwrap_or_default();
-                if wallet_address.is_empty() {
-                    // Fall back to deriving from private key
-                    if let Ok(pk) = std::env::var("WALLET_PRIVATE_KEY") {
-                        if let Ok(signer) = alloy_signer_local::PrivateKeySigner::from_str(&pk) {
-                            wallet_address = format!("{:?}", signer.address());
+        // Only poll on-chain USDC balance in LIVE mode (not paper trading)
+        let is_preview = self.config.read().await.copy.preview_mode;
+        if !is_preview {
+            let balance_clone = self.portfolio_balance.clone();
+            let config_rpc = self.config.clone();
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let usdc_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+                loop {
+                    let rpc_url = config_rpc.read().await.rpc.polygon_rpc.clone();
+                    let mut wallet_address = std::env::var("WALLET_PUBLIC_ADDRESS").unwrap_or_default();
+                    if wallet_address.is_empty() {
+                        if let Ok(pk) = std::env::var("WALLET_PRIVATE_KEY") {
+                            if let Ok(signer) = alloy_signer_local::PrivateKeySigner::from_str(&pk) {
+                                wallet_address = format!("{:?}", signer.address());
+                            }
                         }
                     }
-                }
-                
-                if !wallet_address.is_empty() && wallet_address != "0x0000000000000000000000000000000000000000" {
-                    let mut data = "0x70a08231000000000000000000000000".to_string();
-                    data.push_str(wallet_address.trim_start_matches("0x"));
+                    
+                    if !wallet_address.is_empty() && wallet_address != "0x0000000000000000000000000000000000000000" {
+                        let mut data = "0x70a08231000000000000000000000000".to_string();
+                        data.push_str(wallet_address.trim_start_matches("0x"));
 
-                    let payload = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "method": "eth_call",
-                        "params": [{
-                            "to": usdc_address,
-                            "data": data
-                        }, "latest"],
-                        "id": 1
-                    });
+                        let payload = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "method": "eth_call",
+                            "params": [{
+                                "to": usdc_address,
+                                "data": data
+                            }, "latest"],
+                            "id": 1
+                        });
 
-                    if let Ok(res) = client.post(&rpc_url).json(&payload).send().await {
-                        if let Ok(json) = res.json::<serde_json::Value>().await {
-                            if let Some(result) = json.get("result").and_then(|r| r.as_str()) {
-                                let clean_hex = result.trim_start_matches("0x");
-                                if let Ok(val) = u64::from_str_radix(clean_hex, 16) {
-                                    let balance = Decimal::from_f64_retain((val as f64) / 1_000_000.0).unwrap_or(dec!(0.0));
-                                    *balance_clone.write().await = balance;
+                        if let Ok(res) = client.post(&rpc_url).json(&payload).send().await {
+                            if let Ok(json) = res.json::<serde_json::Value>().await {
+                                if let Some(result) = json.get("result").and_then(|r| r.as_str()) {
+                                    let clean_hex = result.trim_start_matches("0x");
+                                    if let Ok(val) = u64::from_str_radix(clean_hex, 16) {
+                                        let balance = Decimal::from_f64_retain((val as f64) / 1_000_000.0).unwrap_or(dec!(0.0));
+                                        *balance_clone.write().await = balance;
+                                    }
                                 }
                             }
                         }
                     }
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            }
-        });
+            });
+        }
 
         loop {
             match self.trade_rx.recv().await {

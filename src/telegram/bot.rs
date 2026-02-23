@@ -47,6 +47,23 @@ pub async fn start_bot(
                 if parts.is_empty() { return Ok(()); }
                 
                 match parts[0] {
+                    "/start" | "/help" => {
+                        let help = "🤖 *POLY-APEX Copy Trader*\n\n\
+                            📋 *Commands:*\n\
+                            /status — Bot state & open positions\n\
+                            /balance — Current portfolio balance\n\
+                            /pnl — Session P&L\n\
+                            /wallets — List tracked wallets\n\
+                            /addwallet `<addr>` — Track a wallet\n\
+                            /removewallet `<addr>` — Stop tracking\n\
+                            /risk — View risk limits\n\
+                            /pause — Pause copy trading\n\
+                            /resume — Resume copy trading\n\
+                            /help — Show this menu";
+                        let _ = m_bot.send_message(msg.chat.id, help)
+                            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                            .await;
+                    },
                     "/pause" => {
                         *state.write().await = BotState::Paused;
                         let _ = m_bot.send_message(msg.chat.id, "Bot Paused ⏸️").await;
@@ -63,45 +80,58 @@ pub async fn start_bot(
                     },
                     "/wallets" => {
                         let count = wt.scores.len();
-                        let _ = m_bot.send_message(msg.chat.id, format!("Watching {} wallets.", count)).await;
+                        let mut wallet_list = format!("👛 Watching {} wallets:\n", count);
+                        for entry in wt.scores.iter().take(10) {
+                            let addr = format!("{:?}", entry.key());
+                            let short = format!("0x{}…{}", &addr[2..8], &addr[38..42]);
+                            let score = entry.value();
+                            wallet_list.push_str(&format!("  {} — {:.1}% WR, {} trades\n", 
+                                short, score.win_rate, score.trade_count));
+                        }
+                        let _ = m_bot.send_message(msg.chat.id, wallet_list).await;
                     },
                     "/addwallet" => {
                         if parts.len() > 1 {
                             if let Ok(addr) = parts[1].parse::<alloy_primitives::Address>() {
                                 wt.add_wallet(addr);
-                                let _ = m_bot.send_message(msg.chat.id, format!("Added {}", parts[1])).await;
+                                let _ = m_bot.send_message(msg.chat.id, format!("✅ Added {}", parts[1])).await;
                             } else {
-                                let _ = m_bot.send_message(msg.chat.id, "Invalid address format").await;
+                                let _ = m_bot.send_message(msg.chat.id, "❌ Invalid address format").await;
                             }
+                        } else {
+                            let _ = m_bot.send_message(msg.chat.id, "Usage: /addwallet 0x...").await;
                         }
                     },
                     "/removewallet" => {
                         if parts.len() > 1 {
                             if let Ok(addr) = parts[1].parse::<alloy_primitives::Address>() {
                                 if wt.remove_wallet(&addr) {
-                                    let _ = m_bot.send_message(msg.chat.id, format!("Removed {}", parts[1])).await;
+                                    let _ = m_bot.send_message(msg.chat.id, format!("✅ Removed {}", parts[1])).await;
                                 } else {
-                                    let _ = m_bot.send_message(msg.chat.id, "Wallet not found").await;
+                                    let _ = m_bot.send_message(msg.chat.id, "❌ Wallet not found").await;
                                 }
                             }
+                        } else {
+                            let _ = m_bot.send_message(msg.chat.id, "Usage: /removewallet 0x...").await;
                         }
                     },
                     "/risk" => {
                         let r = conf.read().await.risk.clone();
-                        let msg_text = format!("🛡️ Risk Limits\nMax Daily Loss: ${}\nMax Slippage: {}%", r.daily_max_loss_usdc, r.max_slippage_pct);
+                        let msg_text = format!("🛡️ Risk Limits\nMax Daily Loss: ${}\nMax Positions: {}\nMax Slippage: {}%\nLoss Halt: {} consecutive", 
+                            r.daily_max_loss_usdc, r.max_open_positions, r.max_slippage_pct, r.consecutive_loss_halt);
                         let _ = m_bot.send_message(msg.chat.id, msg_text).await;
                     },
                     "/balance" => {
-                        let _ = m_bot.send_message(msg.chat.id, "Balance fetch initialized. See logs.").await;
+                        let _ = m_bot.send_message(msg.chat.id, "💰 Balance: See TUI dashboard for live balance.").await;
                     },
                     "/trades" => {
-                        let _ = m_bot.send_message(msg.chat.id, "Recent trades: [Feature Pending]").await;
+                        let _ = m_bot.send_message(msg.chat.id, "📊 Recent trades: See TUI Live Trade Feed.").await;
                     },
                     "/pnl" => {
-                        let _ = m_bot.send_message(msg.chat.id, "7-day PnL: [Feature Pending]").await;
+                        let _ = m_bot.send_message(msg.chat.id, "📈 P&L: See TUI P&L bar for session stats.").await;
                     },
                     _ => {
-                        let _ = m_bot.send_message(msg.chat.id, "Unknown Command.").await;
+                        let _ = m_bot.send_message(msg.chat.id, "❓ Unknown command. Type /help for available commands.").await;
                     }
                 }
             }
