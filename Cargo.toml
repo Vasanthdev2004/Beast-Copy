@@ -28,4 +28,7 @@ chrono = "0.4"
 polymarket-rs = "0.2.0"
 alloy-primitives = "0.8.26"
 alloy-signer-local = "0.7.3"
+dotenvy = "0.15.7"
+ratatui = "0.30.0"
+crossterm = "0.29.0"
 

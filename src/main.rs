@@ -4,6 +4,7 @@ pub mod execution;
 pub mod risk;
 pub mod storage;
 pub mod telegram;
+pub mod tui;
 pub mod types;
 pub mod utils;
 
@@ -12,12 +13,16 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::info;
 
 use crate::types::{BotState, TradeEvent, OrderIntent, OrderResult};
+use rust_decimal_macros::dec;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // 1. Initialize Logging
     utils::logger::init();
     info!("POLY-APEX starting up...");
+
+    // 1b. Load .env file
+    let _ = dotenvy::dotenv();
 
     // 2. Load Config
     let config_manager = config::ConfigManager::new("config.toml").await?;
@@ -118,17 +123,33 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 7. Start Telegram Bot Control Center
+    let tg_config = config.clone();
+    let tg_bot_state = bot_state.clone();
+    let tg_wt = wallet_tracker.clone();
+    let tg_pt = position_tracker.clone();
     tokio::spawn(async move {
         telegram::bot::start_bot(
-            config.clone(),
-            bot_state.clone(),
-            wallet_tracker,
-            position_tracker,
+            tg_config,
+            tg_bot_state,
+            tg_wt,
+            tg_pt,
         ).await;
     });
 
-    // Await forever
-    let () = std::future::pending().await;
+    // 8. USDC balance for dashboard
+    let usdc_balance = Arc::new(RwLock::new(dec!(0)));
+
+    // 9. Launch TUI Dashboard (runs on main thread)
+    let dashboard_state = Arc::new(tui::dashboard::DashboardState::new(
+        config.clone(),
+        bot_state.clone(),
+        wallet_tracker.clone(),
+        position_tracker.clone(),
+        consecutive_losses,
+        usdc_balance,
+    ));
+
+    tui::dashboard::run_dashboard(dashboard_state).await.ok();
 
     Ok(())
 }
