@@ -150,33 +150,41 @@ impl CopyEngine {
 
         // Read portfolio balance correctly from fetched state
         let portfolio_balance = *self.portfolio_balance.read().await;
+        let exact_price = if event.price > rust_decimal_macros::dec!(0.0) { event.price } else { rust_decimal_macros::dec!(0.0001) };
 
-        let mut size = match config.copy.sizing_mode.as_str() {
-            "kelly" => calculate_kelly_size(score.win_rate, event.price, portfolio_balance),
-            "percent" | "ratio" => {
-                let ratio = Decimal::from_f64_retain(config.copy.copy_ratio).unwrap_or(dec!(0.5));
-                event.size * ratio
+        let (mut final_shares, mut final_usdc) = if config.copy.sizing_mode == "shares" {
+            let shares = Decimal::from_f64_retain(config.copy.fixed_shares).unwrap_or(rust_decimal_macros::dec!(5.0));
+            (shares, shares * exact_price)
+        } else {
+            let mut usdc_size = match config.copy.sizing_mode.as_str() {
+                "kelly" => calculate_kelly_size(score.win_rate, event.price, portfolio_balance),
+                "percent" | "ratio" => {
+                    let ratio = Decimal::from_f64_retain(config.copy.copy_ratio).unwrap_or(rust_decimal_macros::dec!(0.5));
+                    event.size * ratio
+                }
+                "fixed" => Decimal::from_f64_retain(config.copy.fixed_usdc).unwrap_or(rust_decimal_macros::dec!(10.0)),
+                _ => rust_decimal_macros::dec!(0.0),
+            };
+
+            let max_usdc = Decimal::from_f64_retain(config.copy.max_single_trade_usdc).unwrap_or(rust_decimal_macros::dec!(100.0));
+            if usdc_size > max_usdc {
+                usdc_size = max_usdc;
             }
-            "fixed" => Decimal::from_f64_retain(config.copy.fixed_usdc).unwrap_or(dec!(10.0)),
-            _ => dec!(0.0),
+            (usdc_size / exact_price, usdc_size)
         };
 
-        let max_size = Decimal::from_f64_retain(config.copy.max_single_trade_usdc).unwrap_or(dec!(100.0));
-        if size > max_size {
-            size = max_size;
-        }
-
-        let min_size = Decimal::from_f64_retain(config.copy.min_copy_size_usdc).unwrap_or(dec!(2.0));
-        if size < min_size {
-            // For testing: force minimum size instead of dropping the trade
-            size = min_size;
+        let min_size = Decimal::from_f64_retain(config.copy.min_copy_size_usdc).unwrap_or(rust_decimal_macros::dec!(2.0));
+        if final_usdc < min_size {
+            // For testing & safety bounds: force minimum size instead of dropping the trade
+            final_usdc = min_size;
+            final_shares = final_usdc / exact_price;
         }
 
         let intent = OrderIntent {
             market_id: event.market_id,
             asset_id: event.asset_id,
             side: event.side,
-            size,
+            size: final_shares,
             price: event.price,
             order_type: OrderType::FOK,
             source_wallet: event.wallet,
@@ -185,10 +193,10 @@ impl CopyEngine {
         let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
             time: chrono::Utc::now().format("%H:%M:%S").to_string(),
             kind: "COPY".to_string(),
-            message: format!("Wallet 0x{}…{} size: ${}", 
+            message: format!("Wallet 0x{}…{} size: {} shares (${:.2})", 
                 &format!("{:?}", event.wallet)[2..6],
                 &format!("{:?}", event.wallet)[38..42],
-                size),
+                final_shares.round_dp(2), final_usdc.round_dp(2)),
         });
 
         if let Err(e) = self.intent_tx.send(intent).await {

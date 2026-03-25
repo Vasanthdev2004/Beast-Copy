@@ -85,7 +85,7 @@ impl ClobExecutor {
         
         if config.copy.preview_mode {
             // ── Paper Trading: deduct from balance, track position ──
-            let cost = intent.size.round_dp(2);
+            let cost = (intent.size * intent.price).round_dp(2);
             let price = intent.price.round_dp(2);
             
             {

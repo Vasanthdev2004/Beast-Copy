@@ -9,6 +9,7 @@ paper_balance_usdc = 1000.0
 copy_ratio = 0.5
 sizing_mode = "kelly"
 fixed_usdc = 10.0
+fixed_shares = 5.0
 max_single_trade_usdc = 100.0
 min_market_liquidity_usdc = 500.0
 min_copy_size_usdc = 2.0

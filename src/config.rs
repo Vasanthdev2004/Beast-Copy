@@ -21,6 +21,8 @@ pub struct CopyConfig {
     pub copy_ratio: f64,
     pub sizing_mode: String,
     pub fixed_usdc: f64,
+    #[serde(default = "default_fixed_shares")]
+    pub fixed_shares: f64,
     pub max_single_trade_usdc: f64,
     pub min_market_liquidity_usdc: f64,
     pub min_copy_size_usdc: f64,
@@ -29,6 +31,7 @@ pub struct CopyConfig {
 }
 
 fn default_paper_balance() -> f64 { 1000.0 }
+fn default_fixed_shares() -> f64 { 5.0 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RiskConfig {
@@ -109,6 +112,9 @@ impl ConfigManager {
         }
         if let Ok(v) = std::env::var("FIXED_USDC") {
             if let Ok(n) = v.parse() { config.copy.fixed_usdc = n; }
+        }
+        if let Ok(v) = std::env::var("FIXED_SHARES") {
+            if let Ok(n) = v.parse() { config.copy.fixed_shares = n; }
         }
         if let Ok(v) = std::env::var("MAX_SINGLE_TRADE_USDC") {
             if let Ok(n) = v.parse() { config.copy.max_single_trade_usdc = n; }
