@@ -80,16 +80,88 @@ impl ConfigManager {
         let content = std::fs::read_to_string(path)?;
         let mut config: AppConfig = toml::from_str(&content)?;
         
-        if let Ok(token) = std::env::var("TELEGRAM_BOT_TOKEN") {
-            config.telegram.bot_token = token;
+        // ── Wallets ──
+        if let Ok(v) = std::env::var("WALLET_TARGETS") {
+            config.wallets.targets = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
         }
-        if let Ok(rpc) = std::env::var("POLYGON_RPC") {
-            config.rpc.polygon_rpc = rpc;
+        if let Ok(v) = std::env::var("AUTO_DISCOVER") {
+            config.wallets.auto_discover = v.to_lowercase() == "true";
         }
-        // LIVE_TRADING=true in .env → preview_mode = false (real orders)
-        // LIVE_TRADING=false in .env → preview_mode = true (paper trading)
-        if let Ok(live) = std::env::var("LIVE_TRADING") {
-            config.copy.preview_mode = live.to_lowercase() != "true";
+        if let Ok(v) = std::env::var("MAX_WATCHED_WALLETS") {
+            if let Ok(n) = v.parse() { config.wallets.max_watched_wallets = n; }
+        }
+        
+        // ── Copy ──
+        if let Ok(v) = std::env::var("LIVE_TRADING") {
+            config.copy.preview_mode = v.to_lowercase() != "true";
+        }
+        if let Ok(v) = std::env::var("PREVIEW_MODE") {
+            config.copy.preview_mode = v.to_lowercase() == "true";
+        }
+        if let Ok(v) = std::env::var("PAPER_BALANCE_USDC") {
+            if let Ok(n) = v.parse() { config.copy.paper_balance_usdc = n; }
+        }
+        if let Ok(v) = std::env::var("COPY_RATIO") {
+            if let Ok(n) = v.parse() { config.copy.copy_ratio = n; }
+        }
+        if let Ok(v) = std::env::var("SIZING_MODE") {
+            config.copy.sizing_mode = v;
+        }
+        if let Ok(v) = std::env::var("FIXED_USDC") {
+            if let Ok(n) = v.parse() { config.copy.fixed_usdc = n; }
+        }
+        if let Ok(v) = std::env::var("MAX_SINGLE_TRADE_USDC") {
+            if let Ok(n) = v.parse() { config.copy.max_single_trade_usdc = n; }
+        }
+        if let Ok(v) = std::env::var("MIN_MARKET_LIQUIDITY_USDC") {
+            if let Ok(n) = v.parse() { config.copy.min_market_liquidity_usdc = n; }
+        }
+        if let Ok(v) = std::env::var("MIN_COPY_SIZE_USDC") {
+            if let Ok(n) = v.parse() { config.copy.min_copy_size_usdc = n; }
+        }
+        if let Ok(v) = std::env::var("COOLDOWN_PER_MARKET_SECS") {
+            if let Ok(n) = v.parse() { config.copy.cooldown_per_market_secs = n; }
+        }
+        if let Ok(v) = std::env::var("DEDUP_WINDOW_SECS") {
+            if let Ok(n) = v.parse() { config.copy.dedup_window_secs = n; }
+        }
+        
+        // ── Risk ──
+        if let Ok(v) = std::env::var("DAILY_MAX_LOSS_USDC") {
+            if let Ok(n) = v.parse() { config.risk.daily_max_loss_usdc = n; }
+        }
+        if let Ok(v) = std::env::var("MAX_OPEN_POSITIONS") {
+            if let Ok(n) = v.parse() { config.risk.max_open_positions = n; }
+        }
+        if let Ok(v) = std::env::var("MAX_SLIPPAGE_PCT") {
+            if let Ok(n) = v.parse() { config.risk.max_slippage_pct = n; }
+        }
+        if let Ok(v) = std::env::var("CONSECUTIVE_LOSS_HALT") {
+            if let Ok(n) = v.parse() { config.risk.consecutive_loss_halt = n; }
+        }
+        if let Ok(v) = std::env::var("HALT_DURATION_MINS") {
+            if let Ok(n) = v.parse() { config.risk.halt_duration_mins = n; }
+        }
+        
+        // ── RPC ──
+        if let Ok(v) = std::env::var("POLYGON_RPC") {
+            config.rpc.polygon_rpc = v;
+        }
+        if let Ok(v) = std::env::var("BACKUP_RPC") {
+            config.rpc.backup_rpc = v;
+        }
+        if let Ok(v) = std::env::var("CONFIRMATION_TIMEOUT_SECS") {
+            if let Ok(n) = v.parse() { config.rpc.confirmation_timeout_secs = n; }
+        }
+        
+        // ── Telegram ──
+        if let Ok(v) = std::env::var("TELEGRAM_BOT_TOKEN") {
+            config.telegram.bot_token = v;
+        }
+        if let Ok(v) = std::env::var("TELEGRAM_ALLOWED_IDS") {
+            config.telegram.allowed_user_ids = v.split(',')
+                .filter_map(|s| s.trim().parse::<u64>().ok())
+                .collect();
         }
         
         Ok(config)

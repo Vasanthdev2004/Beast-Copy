@@ -1,5 +1,5 @@
 [wallets]
-targets = ["0x1d0034134e339a309700ff2d34e99fa2d48b0313"]
+targets = ["0x6bab41a0dc40d6dd4c1a915b8c01969479fd1292"]
 auto_discover = false
 max_watched_wallets = 20
 
