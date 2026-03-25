@@ -242,8 +242,8 @@ pub async fn run_dashboard(
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Percentage(45),  // Paper Positions
-                    Constraint::Percentage(30),  // Statistics
-                    Constraint::Percentage(25),  // Target Whale
+                    Constraint::Length(7),       // Statistics (fixed height)
+                    Constraint::Min(5),          // Target Whale (takes all remaining space)
                 ])
                 .split(body_chunks[1]);
 
@@ -376,7 +376,7 @@ pub async fn run_dashboard(
             frame.render_widget(stats, right_chunks[1]);
 
             // ── Target Whale Panel ──
-            let whale_lines: Vec<Line> = wallets.iter().take(3).flat_map(|w| {
+            let whale_lines: Vec<Line> = wallets.iter().take(50).flat_map(|w| {
                 let addr_short = format!("0x{}…{}", 
                     &format!("{:?}", w.address)[2..8],
                     &format!("{:?}", w.address)[38..42],
@@ -399,7 +399,7 @@ pub async fn run_dashboard(
                         Span::styled("  Winrate: ", Style::default().fg(Color::DarkGray)),
                         Span::styled(bar, Style::default().fg(wr_color)),
                         Span::raw(" "),
-                        Span::styled(format!("{:.1}%", w.win_rate), Style::default().fg(wr_color).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{:.1}%", w.win_rate * 100.0), Style::default().fg(wr_color).add_modifier(Modifier::BOLD)),
                     ]),
                     Line::from(vec![Span::raw("")]),
                 ]

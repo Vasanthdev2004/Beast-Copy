@@ -168,7 +168,12 @@ impl CopyEngine {
 
         let min_size = Decimal::from_f64_retain(config.copy.min_copy_size_usdc).unwrap_or(dec!(2.0));
         if size < min_size {
-            return; // Too small
+            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "SKIP".to_string(),
+                message: format!("Calculated size ${:.2} < Min ${:.2}", size, min_size),
+            });
+            return;
         }
 
         let intent = OrderIntent {
