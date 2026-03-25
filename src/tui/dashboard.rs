@@ -154,7 +154,7 @@ pub async fn run_dashboard(
                 Span::styled(&uptime_str, Style::default().fg(Color::White)),
             ]);
             let header = Paragraph::new(header_text)
-                .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::DarkGray)));
             frame.render_widget(header, main_chunks[0]);
 
             // ── P&L Status Bar ──
@@ -193,7 +193,7 @@ pub async fn run_dashboard(
                 ),
             ]);
             let pnl_bar = Paragraph::new(pnl_text)
-                .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Blue)));
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Blue)));
             frame.render_widget(pnl_bar, main_chunks[1]);
 
             // ── Body: left (trade feed) | right (positions + stats + whale) ──
@@ -233,6 +233,7 @@ pub async fn run_dashboard(
                 .block(Block::default()
                     .title(" ⚡ LIVE TRADE FEED ")
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Green)));
             frame.render_widget(feed, body_chunks[0]);
 
@@ -247,10 +248,11 @@ pub async fn run_dashboard(
                 .split(body_chunks[1]);
 
             // ── Paper Positions Table ──
-            let pos_header = Row::new(vec!["Market", "Side", "Size", "Entry", "P&L"])
+            let pos_header = Row::new(vec!["Market", "Side", "Size", "Entry", "P&L", "Duration"])
                 .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
                 .bottom_margin(1);
 
+            let now_ms = chrono::Utc::now().timestamp_millis() as u64;
             let pos_rows: Vec<Row> = positions.iter().map(|p| {
                 let side_str = match p.side {
                     crate::types::Side::Yes => "YES",
@@ -267,6 +269,15 @@ pub async fn run_dashboard(
                     p.market_id.clone()
                 };
 
+                let duration_secs = now_ms.saturating_sub(p.opened_at) / 1000;
+                let duration_str = if duration_secs < 60 {
+                    format!("{}s", duration_secs)
+                } else if duration_secs < 3600 {
+                    format!("{}m", duration_secs / 60)
+                } else {
+                    format!("{}h", duration_secs / 3600)
+                };
+
                 Row::new(vec![
                     Cell::from(market_short),
                     Cell::from(side_str).style(Style::default().fg(
@@ -275,6 +286,7 @@ pub async fn run_dashboard(
                     Cell::from(format!("${:.2}", p.size.round_dp(2))),
                     Cell::from(format!("¢{}", (p.entry_price * Decimal::from(100)).round_dp(0))),
                     Cell::from(pnl_str).style(Style::default().fg(pnl_color)),
+                    Cell::from(duration_str).style(Style::default().fg(Color::DarkGray)),
                 ])
             }).collect();
 
@@ -291,23 +303,26 @@ pub async fn run_dashboard(
                     Cell::from(""),
                     Cell::from(format!("{:+.2}", session_pnl.round_dp(2)))
                         .style(Style::default().fg(pnl_color).add_modifier(Modifier::BOLD)),
+                    Cell::from(""),
                 ]).bottom_margin(0));
             }
 
             let pos_table = Table::new(
                 all_rows,
                 [
-                    Constraint::Percentage(30),
+                    Constraint::Percentage(25),
                     Constraint::Percentage(12),
-                    Constraint::Percentage(20),
                     Constraint::Percentage(18),
-                    Constraint::Percentage(20),
+                    Constraint::Percentage(15),
+                    Constraint::Percentage(15),
+                    Constraint::Percentage(15),
                 ],
             )
             .header(pos_header)
             .block(Block::default()
                 .title(" 📋 PAPER POSITIONS ")
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(Color::Yellow)));
             frame.render_widget(pos_table, right_chunks[0]);
 
@@ -356,30 +371,45 @@ pub async fn run_dashboard(
                 .block(Block::default()
                     .title(" 📊 STATISTICS ")
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Cyan)));
             frame.render_widget(stats, right_chunks[1]);
 
             // ── Target Whale Panel ──
-            let whale_lines: Vec<Line> = wallets.iter().take(3).map(|w| {
+            let whale_lines: Vec<Line> = wallets.iter().take(3).flat_map(|w| {
                 let addr_short = format!("0x{}…{}", 
                     &format!("{:?}", w.address)[2..8],
                     &format!("{:?}", w.address)[38..42],
                 );
+                
+                let wr = w.win_rate.clamp(0.0, 100.0);
+                let filled = (wr / 10.0).round() as usize;
+                let empty = 10usize.saturating_sub(filled);
+                let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
                 let wr_color = if w.win_rate >= 55.0 { Color::Green } else { Color::Yellow };
-                Line::from(vec![
-                    Span::styled("  Address: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(addr_short, Style::default().fg(Color::White)),
-                    Span::raw("  │  "),
-                    Span::styled(format!("{:.1}%", w.win_rate), Style::default().fg(wr_color)),
-                    Span::raw("  │  Trades: "),
-                    Span::styled(format!("{}", w.trade_count), Style::default().fg(Color::White)),
-                ])
+
+                vec![
+                    Line::from(vec![
+                        Span::styled("  Address: ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(addr_short, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        Span::raw("  │  Trades: "),
+                        Span::styled(format!("{}", w.trade_count), Style::default().fg(Color::Cyan)),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("  Winrate: ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(bar, Style::default().fg(wr_color)),
+                        Span::raw(" "),
+                        Span::styled(format!("{:.1}%", w.win_rate), Style::default().fg(wr_color).add_modifier(Modifier::BOLD)),
+                    ]),
+                    Line::from(vec![Span::raw("")]),
+                ]
             }).collect();
 
             let whale_info = Paragraph::new(whale_lines)
                 .block(Block::default()
                     .title(" 🐋 TARGET WHALE ")
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Magenta)));
             frame.render_widget(whale_info, right_chunks[2]);
 
@@ -395,6 +425,7 @@ pub async fn run_dashboard(
                         if losses >= loss_halt { "⚠ HALTED" } else { "OK" }
                     ))
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(
                         if losses >= loss_halt { Color::Red } else { Color::DarkGray }
                     )))

@@ -66,7 +66,7 @@ impl CopyEngine {
             let config_rpc = self.config.clone();
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
-                let usdc_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+                let usdc_address = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"; // Native USDC on Polygon
                 loop {
                     let rpc_url = config_rpc.read().await.rpc.polygon_rpc.clone();
                     let mut wallet_address = std::env::var("WALLET_PUBLIC_ADDRESS").unwrap_or_default();

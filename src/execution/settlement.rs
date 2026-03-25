@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::info;
 
-use crate::types::{OrderResult, OrderStatus, Position, Side};
+use crate::types::{OrderResult, OrderStatus, Position};
 use crate::config::AppConfig;
 use crate::engines::position_tracker::PositionTracker;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -56,28 +56,32 @@ impl SettlementMonitor {
 
         match result.status {
             OrderStatus::Filled => {
-                if let Some(tx_hash) = result.tx_hash {
-                    info!("Waiting for on-chain confirmation for tx: {:?}", tx_hash);
-                    
-                    // The future listener runs as an independent WS loop, but for now we manually accept
-                    self.consecutive_losses.store(0, Ordering::SeqCst);
-                    
-                    // Insert confirmed position via position_tracker
-                    let position = Position {
-                        market_id: "preview_market".to_string(), // In reality we map from OrderResult or intent
-                        side: Side::Yes,
-                        size: rust_decimal_macros::dec!(10.0),
-                        entry_price: result.filled_at,
-                        source_wallet: alloy_primitives::Address::default(),
-                        opened_at: result.timestamp,
-                        pnl: None,
-                    };
-                    self.position_tracker.add_position(position);
+                // Reset consecutive losses on fill
+                self.consecutive_losses.store(0, Ordering::SeqCst);
 
+                // Insert confirmed position from actual order data
+                let position = Position {
+                    market_id: result.market_id.clone(),
+                    side: result.side,
+                    size: result.size,
+                    entry_price: result.filled_at,
+                    source_wallet: result.source_wallet,
+                    opened_at: result.timestamp,
+                    pnl: None,
+                };
+                self.position_tracker.add_position(position);
+
+                if let Some(tx_hash) = result.tx_hash {
                     let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: "SETTLE".to_string(),
                         message: format!("LIVE Settled TX: {:?}", tx_hash),
+                    });
+                } else {
+                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                        time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                        kind: "SETTLE".to_string(),
+                        message: format!("Settled: {} ${:.2}", result.order_id, result.size.round_dp(2)),
                     });
                 }
             }

@@ -71,11 +71,16 @@ impl RtdsEngine {
             
             join_all(tasks).await;
             
-            // Cleanup cache to prevent memory leak
+            // Evict oldest entries to prevent unbounded memory growth
             {
                 let mut cache = self.seen_hashes.write().await;
                 if cache.len() > 10000 {
+                    let skip = cache.len() - 5000;
+                    let to_keep: Vec<String> = cache.iter().skip(skip).cloned().collect();
                     cache.clear();
+                    for h in to_keep {
+                        cache.insert(h);
+                    }
                 }
             }
 
@@ -142,7 +147,12 @@ impl RtdsEngine {
                                 continue;
                             }
                             
-                            let side = if side_str.eq_ignore_ascii_case("BUY") { Side::Yes } else { Side::No };
+                            // Map side correctly: BUY of "No" outcome = Side::No
+                            let side = if outcome.eq_ignore_ascii_case("No") {
+                                if side_str.eq_ignore_ascii_case("BUY") { Side::No } else { Side::Yes }
+                            } else {
+                                if side_str.eq_ignore_ascii_case("BUY") { Side::Yes } else { Side::No }
+                            };
 
                             // On first run: show in TUI feed but DON'T trigger copy engine
                             if seed_only {

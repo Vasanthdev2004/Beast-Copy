@@ -112,7 +112,7 @@ impl ClobExecutor {
                 pnl: None,
             };
             self.position_tracker.positions.insert(
-                format!("paper-{}", chrono::Utc::now().timestamp_millis()),
+                format!("paper-{}-{}", intent.market_id, chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
                 position,
             );
 
@@ -131,6 +131,11 @@ impl ClobExecutor {
                 tx_hash: None,
                 filled_at: price,
                 timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                market_id: intent.market_id.clone(),
+                asset_id: intent.asset_id.clone(),
+                side: intent.side,
+                size: cost,
+                source_wallet: intent.source_wallet,
             };
             
             if let Err(e) = self.result_tx.send(result).await {
@@ -177,6 +182,11 @@ impl ClobExecutor {
                         tx_hash: None,
                         filled_at: intent.price,
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                        market_id: intent.market_id.clone(),
+                        asset_id: intent.asset_id.clone(),
+                        side: intent.side,
+                        size: intent.size,
+                        source_wallet: intent.source_wallet,
                     };
                     let _ = self.result_tx.send(result).await;
                 }
@@ -193,6 +203,11 @@ impl ClobExecutor {
                         tx_hash: None,
                         filled_at: intent.price,
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                        market_id: intent.market_id.clone(),
+                        asset_id: intent.asset_id.clone(),
+                        side: intent.side,
+                        size: intent.size,
+                        source_wallet: intent.source_wallet,
                     };
                     let _ = self.result_tx.send(result).await;
                 }

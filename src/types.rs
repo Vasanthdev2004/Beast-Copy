@@ -37,11 +37,16 @@ pub struct OrderIntent {
 
 #[derive(Debug, Clone)]
 pub struct OrderResult {
-    pub order_id:   String,
-    pub status:     OrderStatus,
-    pub tx_hash:    Option<H256>,
-    pub filled_at:  Decimal,
-    pub timestamp:  u64,
+    pub order_id:       String,
+    pub status:         OrderStatus,
+    pub tx_hash:        Option<H256>,
+    pub filled_at:      Decimal,
+    pub timestamp:      u64,
+    pub market_id:      String,
+    pub asset_id:       String,
+    pub side:           Side,
+    pub size:           Decimal,
+    pub source_wallet:  Address,
 }
 
 #[derive(Debug, Clone)]

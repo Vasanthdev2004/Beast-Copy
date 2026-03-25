@@ -31,6 +31,9 @@ impl DbClient {
             r#"
             INSERT INTO trades (market_id, side, size, entry_price, source_wallet, opened_at, pnl)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (market_id, side, source_wallet) DO UPDATE SET
+                size = EXCLUDED.size,
+                pnl = EXCLUDED.pnl
             "#,
         )
         .bind(&position.market_id)

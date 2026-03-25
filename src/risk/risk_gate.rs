@@ -1,9 +1,10 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{info, warn, error};
+use tracing::{info, error};
 use rust_decimal::Decimal;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::HashMap;
 
 use crate::types::{OrderIntent, BotState};
 use crate::config::AppConfig;
@@ -17,6 +18,9 @@ pub struct RiskGate {
     position_tracker: Arc<PositionTracker>,
     consecutive_losses: Arc<AtomicUsize>,
     log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+    daily_loss: Arc<RwLock<Decimal>>,
+    market_cooldowns: Arc<RwLock<HashMap<String, u64>>>,
+    halted_at: Arc<RwLock<Option<std::time::Instant>>>,
 }
 
 impl RiskGate {
@@ -37,76 +41,137 @@ impl RiskGate {
             position_tracker,
             consecutive_losses,
             log_tx,
+            daily_loss: Arc::new(RwLock::new(Decimal::ZERO)),
+            market_cooldowns: Arc::new(RwLock::new(HashMap::new())),
+            halted_at: Arc::new(RwLock::new(None)),
         }
     }
 
     pub async fn run(mut self) {
         info!("RiskGate started");
+
+        // Spawn daily loss reset task (resets at midnight UTC)
+        let daily_loss_clone = self.daily_loss.clone();
+        tokio::spawn(async move {
+            loop {
+                let now = chrono::Utc::now();
+                let tomorrow = (now + chrono::Duration::days(1)).date_naive().and_hms_opt(0, 0, 0).unwrap();
+                let until_midnight = tomorrow.and_utc().signed_duration_since(now);
+                let secs = until_midnight.num_seconds().max(1) as u64;
+                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                *daily_loss_clone.write().await = Decimal::ZERO;
+                info!("Daily loss counter reset at midnight UTC");
+            }
+        });
+
         while let Some(intent) = self.intent_rx.recv().await {
+            // Auto-resume from halt after halt_duration_mins
+            {
+                let halted = self.halted_at.read().await;
+                if let Some(halted_time) = *halted {
+                    let halt_mins = self.config.read().await.risk.halt_duration_mins;
+                    if halted_time.elapsed().as_secs() >= halt_mins * 60 {
+                        drop(halted);
+                        *self.halted_at.write().await = None;
+                        *self.bot_state.write().await = BotState::Running;
+                        self.consecutive_losses.store(0, Ordering::SeqCst);
+                        let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                            time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                            kind: "RISK".to_string(),
+                            message: format!("Auto-resumed after {}m halt", halt_mins),
+                        });
+                    }
+                }
+            }
+
             if self.pre_trade_checks(&intent).await {
                 if let Err(e) = self.clob_tx.send(intent).await {
                     error!("RiskGate failed to send to CLOB executor: {}", e);
                 }
-            } else {
-                warn!("RiskGate rejected order intent for market {}", intent.market_id);
             }
         }
     }
 
-    async fn pre_trade_checks(&mut self, intent: &OrderIntent) -> bool {
+    async fn pre_trade_checks(&self, intent: &OrderIntent) -> bool {
+        // 1. Bot state check
         if *self.bot_state.read().await != BotState::Running {
-            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
-                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
-                kind: "SKIP".to_string(),
-                message: "Bot paused, skipped intent".to_string(),
-            });
+            self.log_skip("Bot paused/halted, skipped").await;
             return false;
         }
 
         let config = self.config.read().await;
 
+        // 2. Min trade size
         let min_size = Decimal::from_f64_retain(config.copy.min_copy_size_usdc).unwrap_or(rust_decimal_macros::dec!(2.0));
         if intent.size < min_size {
-            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
-                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
-                kind: "SKIP".to_string(),
-                message: format!("Size {} below min {}", intent.size, min_size),
-            });
+            self.log_skip(&format!("Size ${:.2} below min ${:.2}", intent.size, min_size)).await;
             return false;
         }
 
+        // 3. Consecutive loss halt
         let losses = self.consecutive_losses.load(Ordering::SeqCst);
         if losses >= config.risk.consecutive_loss_halt {
+            *self.halted_at.write().await = Some(std::time::Instant::now());
             *self.bot_state.write().await = BotState::Halted;
             let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
                 time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                 kind: "RISK".to_string(),
-                message: format!("HALTED: {} consecutive losses", losses),
+                message: format!("HALTED: {} consecutive losses (auto-resume in {}m)", losses, config.risk.halt_duration_mins),
             });
             return false;
         }
 
+        // 4. Max open positions
         let open_positions = self.position_tracker.get_total_open_positions();
         if open_positions >= config.risk.max_open_positions {
-            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
-                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
-                kind: "RISK".to_string(),
-                message: format!("Max open positions ({}) reached", open_positions),
-            });
+            self.log_skip(&format!("Max positions ({}) reached", open_positions)).await;
             return false;
         }
-        
-        // Extended checks for slippage and portfolio max open pos would happen here, querying PositionTracker/MemoryStore
-        // Simple slippage check (assuming intent.price is already close to market odds)
+
+        // 5. Price bounds (safety)
         if intent.price < rust_decimal_macros::dec!(0.01) || intent.price > rust_decimal_macros::dec!(0.99) {
-            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
-                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
-                kind: "SKIP".to_string(),
-                message: format!("Price {} outside safe bounds (0.01-0.99)", intent.price),
-            });
+            self.log_skip(&format!("Price {} outside 0.01-0.99", intent.price)).await;
             return false;
         }
-        
+
+        // 6. Daily loss limit
+        let daily_loss = *self.daily_loss.read().await;
+        let max_daily = Decimal::from_f64_retain(config.risk.daily_max_loss_usdc).unwrap_or(rust_decimal_macros::dec!(300.0));
+        if daily_loss >= max_daily {
+            self.log_skip(&format!("Daily loss ${:.2} >= limit ${:.2}", daily_loss, max_daily)).await;
+            return false;
+        }
+
+        // 7. Slippage check
+        let slippage_pct = Decimal::from_f64_retain(config.risk.max_slippage_pct).unwrap_or(rust_decimal_macros::dec!(2.5));
+        let max_price = rust_decimal_macros::dec!(1.0) - (slippage_pct / rust_decimal_macros::dec!(100.0));
+        let min_price = slippage_pct / rust_decimal_macros::dec!(100.0);
+        if intent.price > max_price || intent.price < min_price {
+            self.log_skip(&format!("Price {:.2} outside slippage bounds ({:.2}-{:.2})", intent.price, min_price, max_price)).await;
+            return false;
+        }
+
+        // 8. Market cooldown
+        let now_secs = chrono::Utc::now().timestamp() as u64;
+        {
+            let cooldowns = self.market_cooldowns.read().await;
+            if let Some(&last_trade) = cooldowns.get(&intent.market_id) {
+                if now_secs - last_trade < config.copy.cooldown_per_market_secs {
+                    self.log_skip(&format!("Market {} in cooldown", &intent.market_id[..8.min(intent.market_id.len())])).await;
+                    return false;
+                }
+            }
+        }
+        self.market_cooldowns.write().await.insert(intent.market_id.clone(), now_secs);
+
         true
+    }
+
+    async fn log_skip(&self, msg: &str) {
+        let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+            time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+            kind: "SKIP".to_string(),
+            message: msg.to_string(),
+        });
     }
 }

@@ -170,5 +170,13 @@ async fn main() -> anyhow::Result<()> {
 
     tui::dashboard::run_dashboard(dashboard_state, log_rx).await.ok();
 
+    // Graceful shutdown: halt the pipeline so no new orders are submitted
+    info!("TUI exited — initiating graceful shutdown...");
+    *bot_state.write().await = BotState::Halted;
+    
+    // Give in-flight orders time to settle (2 seconds grace period)
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    info!("Shutdown complete.");
+
     Ok(())
 }
