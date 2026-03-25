@@ -148,10 +148,9 @@ impl ClobExecutor {
         info!("Sending order to Polymarket CLOB: {:?}", intent);
         
         if let Some(client) = &self.trading_client {
-            let side = match intent.side {
-                Side::Yes => polymarket_rs::types::Side::Buy,
-                Side::No => polymarket_rs::types::Side::Sell,
-            };
+            // On Polymarket CLOB, you always BUY a token. The asset_id (token_id)
+            // already distinguishes YES vs NO token. "Sell" is only for closing positions.
+            let side = polymarket_rs::types::Side::Buy;
 
             let ord = OrderArgs {
                 token_id: intent.asset_id.clone(),
@@ -167,25 +166,83 @@ impl ClobExecutor {
 
             match client.create_and_post_order(&ord, None, None, options, OrderType::Fok).await {
                 Ok(resp) => {
+                    let order_id_str = resp.order_id.as_str().to_string();
+
+                    // ── Fill Confirmation: poll order status via CLOB REST API ──
+                    // FOK orders fill immediately or cancel, but we still verify
+                    let mut confirmed_status = OrderStatus::Timeout;
+                    let mut filled_size = intent.size;
+                    
+                    let http_client = reqwest::Client::new();
+                    let confirmation_timeout = self.config.read().await.rpc.confirmation_timeout_secs;
+                    let poll_start = std::time::Instant::now();
+                    
+                    for attempt in 0u64..10 {
+                        if poll_start.elapsed().as_secs() > confirmation_timeout {
+                            break;
+                        }
+                        
+                        tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt + 1).min(4))).await;
+                        
+                        let url = format!("https://clob.polymarket.com/order/{}", order_id_str);
+                        match http_client.get(&url).send().await {
+                            Ok(res) => {
+                                if let Ok(order) = res.json::<serde_json::Value>().await {
+                                    let status = order.get("status")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                        
+                                    match status {
+                                        "MATCHED" | "FILLED" => {
+                                            if let Some(sz) = order.get("size_matched")
+                                                .and_then(|v| v.as_str())
+                                                .and_then(|s| s.parse::<Decimal>().ok()) 
+                                            {
+                                                if sz > Decimal::ZERO {
+                                                    filled_size = sz;
+                                                }
+                                            }
+                                            confirmed_status = OrderStatus::Filled;
+                                            break;
+                                        }
+                                        "CANCELLED" | "EXPIRED" => {
+                                            confirmed_status = OrderStatus::Rejected;
+                                            break;
+                                        }
+                                        _ => continue,
+                                    }
+                                }
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+
+                    let fill_label = match confirmed_status {
+                        OrderStatus::Filled => "FILL",
+                        OrderStatus::Rejected => "ERR",
+                        OrderStatus::Timeout => "ERR",
+                    };
+                    
                     let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
-                        kind: "FILL".to_string(),
-                        message: format!("LIVE ${:.2} @¢{} ID:{}", 
-                            intent.size.round_dp(2), 
+                        kind: fill_label.to_string(),
+                        message: format!("LIVE {} ${:.2} @¢{} ID:{}", 
+                            match confirmed_status { OrderStatus::Filled => "CONFIRMED", _ => "UNCONFIRMED" },
+                            filled_size.round_dp(2), 
                             (intent.price * Decimal::from(100)).round_dp(0),
-                            resp.order_id),
+                            order_id_str),
                     });
                     
                     let result = OrderResult {
-                        order_id: resp.order_id.as_str().to_string(),
-                        status: OrderStatus::Filled,
+                        order_id: order_id_str,
+                        status: confirmed_status,
                         tx_hash: None,
                         filled_at: intent.price,
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
                         market_id: intent.market_id.clone(),
                         asset_id: intent.asset_id.clone(),
                         side: intent.side,
-                        size: intent.size,
+                        size: filled_size,
                         source_wallet: intent.source_wallet,
                     };
                     let _ = self.result_tx.send(result).await;

@@ -153,7 +153,7 @@ impl CopyEngine {
 
         let mut size = match config.copy.sizing_mode.as_str() {
             "kelly" => calculate_kelly_size(score.win_rate, event.price, portfolio_balance),
-            "percent" => {
+            "percent" | "ratio" => {
                 let ratio = Decimal::from_f64_retain(config.copy.copy_ratio).unwrap_or(dec!(0.5));
                 event.size * ratio
             }

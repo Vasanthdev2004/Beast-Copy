@@ -52,9 +52,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. Instantiate Modules
     
-    // RTDS Engine
-    let rtds_wallets = wallet_tracker.scores.iter().map(|kv| *kv.key()).collect();
-    let rtds_engine = engines::rtds_engine::RtdsEngine::new(trade_tx, rtds_wallets, log_tx.clone());
+    // RTDS Engine (reads wallets dynamically from WalletTracker)
+    let rtds_engine = engines::rtds_engine::RtdsEngine::new(trade_tx, wallet_tracker.clone(), log_tx.clone());
 
     // Copy Engine
     let copy_engine = engines::copy_engine::CopyEngine::new(
@@ -89,12 +88,15 @@ async fn main() -> anyhow::Result<()> {
     ).await;
 
     // Settlement Monitor
+    let daily_loss: Arc<RwLock<Decimal>> = Arc::new(RwLock::new(Decimal::ZERO));
     let settlement_monitor = execution::settlement::SettlementMonitor::new(
         result_rx,
         position_tracker.clone(),
         config.clone(),
         consecutive_losses.clone(),
         log_tx.clone(),
+        usdc_balance.clone(),
+        daily_loss.clone(),
     );
 
     // 6. Database Async Flush (Every 30s)
@@ -121,6 +123,36 @@ async fn main() -> anyhow::Result<()> {
         info!("TimescaleDB async flush enabled.");
     } else {
         tracing::warn!("Failed to connect to database. Running without persistent storage.");
+    }
+
+    // PnL Estimation Loop (updates position P&L estimates every 30s)
+    {
+        let pnl_pt = position_tracker.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                
+                let keys: Vec<String> = pnl_pt.positions.iter().map(|e| e.key().clone()).collect();
+                for key in keys {
+                    if let Some(mut pos) = pnl_pt.positions.get_mut(&key) {
+                        // For prediction markets: estimate PnL as (current_price - entry_price) * shares
+                        // Real PnL is only known at market resolution
+                        // shares = cost / entry_price
+                        let _shares = if pos.entry_price > Decimal::ZERO {
+                            pos.size / pos.entry_price
+                        } else {
+                            pos.size
+                        };
+                        
+                        // Mark-to-entry estimation
+                        // Real P&L = shares * (current_market_price - entry_price)
+                        // TODO: Integrate market price feed for real-time PnL
+                        let estimated_pnl = Decimal::ZERO; // Cost-basis until price feeds available
+                        pos.pnl = Some(estimated_pnl);
+                    }
+                }
+            }
+        });
     }
 
     // 7. Spawn all components as Tokio Tasks
