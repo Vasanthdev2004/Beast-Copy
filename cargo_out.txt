@@ -6,345 +6,305 @@
     Checking cfg-if v1.0.4
    Compiling version_check v0.9.5
    Compiling typenum v1.19.0
-    Checking itoa v1.0.17
-    Checking windows-link v0.2.1
     Checking zeroize v1.8.2
-    Checking pin-project-lite v0.2.16
+    Checking windows-link v0.2.1
+    Checking itoa v1.0.17
     Checking subtle v2.6.1
+    Checking const-oid v0.9.6
+    Checking getrandom v0.2.17
    Compiling parking_lot_core v0.9.12
    Compiling windows_x86_64_msvc v0.53.1
-    Checking const-oid v0.9.6
-    Checking windows-sys v0.61.2
-    Checking memchr v2.8.0
-    Checking once_cell v1.21.3
-   Compiling generic-array v0.14.7
-    Checking getrandom v0.2.17
-    Checking scopeguard v1.2.0
-    Checking log v0.4.29
+    Checking pin-project-lite v0.2.16
    Compiling paste v1.0.15
-   Compiling unicode-segmentation v1.12.0
-    Checking allocator-api2 v0.2.21
-    Checking futures-core v0.3.32
+    Checking windows-sys v0.61.2
     Checking rand_core v0.6.4
-    Checking lock_api v0.4.14
-    Checking tracing-core v0.1.36
-   Compiling zmij v1.0.21
     Checking cpufeatures v0.2.17
    Compiling zerocopy v0.8.39
-    Checking foldhash v0.2.0
-    Checking equivalent v1.0.2
-    Checking futures-sink v0.3.32
-    Checking windows-targets v0.53.5
-    Checking hashbrown v0.16.1
+   Compiling unicode-segmentation v1.12.0
+   Compiling generic-array v0.14.7
+    Checking once_cell v1.21.3
+    Checking memchr v2.8.0
    Compiling unicode-xid v0.2.6
    Compiling crunchy v0.2.4
-    Checking windows-sys v0.60.2
-   Compiling icu_properties_data v2.1.2
-   Compiling icu_normalizer_data v2.1.1
-   Compiling syn v2.0.116
-   Compiling autocfg v1.5.0
+   Compiling zmij v1.0.21
+    Checking log v0.4.29
+    Checking allocator-api2 v0.2.21
+    Checking scopeguard v1.2.0
    Compiling convert_case v0.10.0
     Checking der v0.7.10
    Compiling tiny-keccak v2.0.2
-    Checking slab v0.4.12
-    Checking futures-channel v0.3.32
+    Checking lock_api v0.4.14
+    Checking tracing-core v0.1.36
     Checking ff v0.13.1
     Checking base16ct v0.2.0
-    Checking stable_deref_trait v1.2.1
+    Checking futures-core v0.3.32
     Checking group v0.13.0
+    Checking foldhash v0.2.0
+   Compiling syn v2.0.116
+   Compiling icu_normalizer_data v2.1.1
+   Compiling icu_properties_data v2.1.2
+    Checking equivalent v1.0.2
+   Compiling ruint-macro v1.2.1
+    Checking stable_deref_trait v1.2.1
+    Checking windows-targets v0.53.5
+    Checking hashbrown v0.16.1
+    Checking foldhash v0.1.5
+    Checking windows-sys v0.60.2
+   Compiling autocfg v1.5.0
+   Compiling heck v0.5.0
+    Checking futures-sink v0.3.32
+   Compiling getrandom v0.3.4
+    Checking spki v0.7.3
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking crypto-bigint v0.5.5
+    Checking sec1 v0.7.3
    Compiling serde_json v1.0.149
-    Checking futures-io v0.3.32
-    Checking futures-task v0.3.32
+    Checking digest v0.10.7
+   Compiling ahash v0.8.12
    Compiling windows_x86_64_msvc v0.48.5
    Compiling num-traits v0.2.19
-    Checking foldhash v0.1.5
-    Checking crypto-common v0.1.7
-    Checking block-buffer v0.10.4
-    Checking crypto-bigint v0.5.5
-   Compiling ruint-macro v1.2.1
-    Checking digest v0.10.7
-    Checking indexmap v2.13.0
-   Compiling getrandom v0.3.4
-   Compiling heck v0.5.0
-    Checking socket2 v0.6.2
-    Checking sec1 v0.7.3
     Checking hmac v0.12.1
     Checking sha2 v0.10.9
-    Checking rfc6979 v0.4.0
     Checking signature v2.2.0
-    Checking spki v0.7.3
-   Compiling ahash v0.8.12
-    Checking const-hex v1.17.0
-    Checking writeable v0.6.2
-    Checking litemap v0.8.1
-   Compiling thiserror v1.0.69
-    Checking fnv v1.0.7
+    Checking rfc6979 v0.4.0
+    Checking slab v0.4.12
+    Checking futures-channel v0.3.32
    Compiling crossbeam-utils v0.8.21
-   Compiling ident_case v1.0.1
-   Compiling httparse v1.10.1
-   Compiling syn v1.0.109
-    Checking percent-encoding v2.3.2
-    Checking elliptic-curve v0.13.8
+    Checking const-hex v1.17.0
+    Checking socket2 v0.6.2
    Compiling thiserror v2.0.18
-   Compiling smallvec v1.15.1
-    Checking ecdsa v0.16.9
+   Compiling thiserror v1.0.69
+    Checking futures-io v0.3.32
+   Compiling indexmap v2.13.0
+    Checking futures-task v0.3.32
+   Compiling litemap v0.8.1
+    Checking elliptic-curve v0.13.8
     Checking bitflags v2.11.0
-   Compiling native-tls v0.2.16
-    Checking k256 v0.13.4
-    Checking ryu v1.0.23
-    Checking try-lock v0.2.5
-    Checking tower-service v0.3.3
-    Checking want v0.3.1
-    Checking form_urlencoded v1.2.2
+   Compiling smallvec v1.15.1
+    Checking writeable v0.6.2
+    Checking ecdsa v0.16.9
    Compiling proc-macro-error-attr2 v2.0.0
+    Checking k256 v0.13.4
    Compiling dunce v1.0.5
-   Compiling getrandom v0.4.1
-    Checking utf8_iter v1.0.4
-   Compiling windows_x86_64_msvc v0.52.6
-    Checking windows-targets v0.48.5
+    Checking percent-encoding v2.3.2
+    Checking ryu v1.0.23
+   Compiling rustversion v1.0.22
+   Compiling httparse v1.10.1
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling native-tls v0.2.16
    Compiling synstructure v0.13.2
    Compiling macro-string v0.1.4
    Compiling syn-solidity v0.8.26
    Compiling proc-macro-error2 v2.0.1
-   Compiling rustversion v1.0.22
-    Checking windows-sys v0.48.0
-   Compiling strsim v0.11.1
+   Compiling darling_core v0.23.0
+    Checking form_urlencoded v1.2.2
     Checking ppv-lite86 v0.2.21
+   Compiling utf8_iter v1.0.4
     Checking mio v1.1.1
     Checking schannel v0.1.28
-   Compiling darling_core v0.23.0
     Checking rand_chacha v0.3.1
-    Checking windows-targets v0.52.6
+   Compiling minimal-lexical v0.2.1
+   Compiling rust_decimal v1.40.0
+   Compiling tinyvec_macros v0.1.1
+   Compiling bytes v1.11.1
+   Compiling libc v0.2.182
+   Compiling tinyvec v1.10.0
+   Compiling nom v7.1.3
+    Checking rand v0.8.5
    Compiling serde_derive v1.0.228
    Compiling zerofrom-derive v0.1.6
    Compiling yoke-derive v0.8.1
    Compiling zerovec-derive v0.11.2
    Compiling displaydoc v0.2.5
    Compiling tracing-attributes v0.1.31
-   Compiling tokio-macros v2.6.0
    Compiling derive_more-impl v2.1.1
-   Compiling futures-macro v0.3.32
    Compiling alloy-rlp-derive v0.3.13
-   Compiling thiserror-impl v1.0.69
-   Compiling thiserror-impl v2.0.18
+   Compiling tokio-macros v2.6.0
+   Compiling futures-macro v0.3.32
    Compiling derive_more-impl v1.0.0
-    Checking zerofrom v0.1.6
+   Compiling thiserror-impl v2.0.18
+   Compiling thiserror-impl v1.0.69
+   Compiling alloy-sol-macro-input v0.8.26
+   Compiling auto_impl v1.3.0
+   Compiling zerofrom v0.1.6
     Checking yoke v0.8.1
     Checking tracing v0.1.44
+   Compiling alloy-sol-macro-expander v0.8.26
     Checking futures-util v0.3.32
-   Compiling alloy-sol-macro-input v0.8.26
     Checking zerovec v0.11.5
     Checking zerotrie v0.2.3
-   Compiling auto_impl v1.3.0
-   Compiling alloy-sol-macro-expander v0.8.26
-    Checking tinystr v0.8.2
-    Checking potential_utf v0.1.4
-    Checking icu_locale_core v2.1.1
-    Checking icu_collections v2.1.1
-   Compiling minimal-lexical v0.2.1
-    Checking ipnet v2.11.0
-   Compiling rust_decimal v1.40.0
-   Compiling tinyvec_macros v0.1.1
-    Checking icu_provider v2.1.1
-   Compiling bytes v1.11.1
-   Compiling libc v0.2.182
-    Checking icu_properties v2.1.2
-   Compiling hashbrown v0.14.5
-   Compiling icu_normalizer v2.1.1
-    Checking arrayvec v0.7.6
-    Checking either v1.15.0
-    Checking hashbrown v0.15.5
-    Checking derive_more v1.0.0
-    Checking nybbles v0.3.4
-    Checking alloy-rlp v0.3.13
-    Checking parking_lot v0.12.5
-    Checking http v1.4.0
-    Checking http v0.2.12
-    Checking itertools v0.14.0
-   Compiling tokio v1.49.0
-    Checking idna_adapter v1.2.1
-    Checking ruint v1.17.2
-    Checking idna v1.1.0
-   Compiling tinyvec v1.10.0
-    Checking url v2.5.8
-    Checking derive_more v2.1.1
-    Checking http-body v1.0.1
-   Compiling nom v7.1.3
    Compiling darling_macro v0.23.0
-   Compiling alloy-sol-macro v0.8.26
-    Checking alloy-primitives v0.8.26
+   Compiling hashbrown v0.14.5
+   Compiling tokio v1.49.0
+   Compiling tinystr v0.8.2
+    Checking potential_utf v0.1.4
+   Compiling icu_locale_core v2.1.1
+    Checking icu_collections v2.1.1
    Compiling strum_macros v0.27.2
+    Checking icu_provider v2.1.1
+   Compiling windows-targets v0.48.5
     Checking castaway v0.2.4
-    Checking windows-sys v0.52.0
-    Checking rand v0.8.5
-    Checking mime v0.3.17
+    Checking icu_properties v2.1.2
+   Compiling parking_lot v0.12.5
+   Compiling icu_normalizer v2.1.1
+    Checking derive_more v1.0.0
+    Checking arrayvec v0.7.6
+    Checking hashbrown v0.15.5
+    Checking either v1.15.0
+    Checking nybbles v0.3.4
+    Checking itertools v0.14.0
+    Checking alloy-rlp v0.3.13
+    Checking http v1.4.0
+   Compiling alloy-sol-macro v0.8.26
+    Checking derive_more v2.1.1
+    Checking ruint v1.17.2
+    Checking idna_adapter v1.2.1
+    Checking idna v1.1.0
+   Compiling winapi v0.3.9
+    Checking tower-service v0.3.3
+    Checking http-body v1.0.1
+    Checking try-lock v0.2.5
+    Checking fnv v1.0.7
+   Compiling indoc v2.0.7
+    Checking static_assertions v1.1.0
+    Checking alloy-primitives v0.8.26
+   Compiling instability v0.3.11
+   Compiling getrandom v0.4.1
     Checking byteorder v1.5.0
-    Checking base64 v0.21.7
-    Checking alloy-serde v0.7.3
+   Compiling unicode_categories v0.1.1
+    Checking atomic-waker v1.1.2
+    Checking unicode-width v0.2.2
+   Compiling crc-catalog v2.4.0
+   Compiling sqlformat v0.2.6
+   Compiling crc v3.4.0
+    Checking unicode-truncate v2.0.1
+   Compiling crossbeam-queue v0.3.12
+    Checking compact_str v0.9.0
+    Checking strum v0.27.2
+   Compiling url v2.5.8
+    Checking want v0.3.1
     Checking alloy-eip7702 v0.4.2
     Checking alloy-eip2930 v0.1.0
+    Checking alloy-serde v0.7.3
     Checking alloy-trie v0.7.9
     Checking alloy-sol-types v0.8.26
-   Compiling unicode_categories v0.1.1
-   Compiling winapi v0.3.9
-   Compiling indoc v2.0.7
-    Checking alloy-eips v0.7.3
-   Compiling strsim v0.10.0
-    Checking unicode-width v0.2.2
-   Compiling instability v0.3.11
-    Checking static_assertions v1.1.0
-   Compiling unicase v2.9.0
-    Checking atomic-waker v1.1.2
-   Compiling crc-catalog v2.4.0
-   Compiling crc v3.4.0
-   Compiling mime_guess v2.0.5
-    Checking alloy-consensus v0.7.3
-    Checking unicode-truncate v2.0.1
-    Checking compact_str v0.9.0
-   Compiling sqlformat v0.2.6
-   Compiling darling_core v0.13.4
-    Checking strum v0.27.2
-    Checking socket2 v0.5.10
-   Compiling crossbeam-queue v0.3.12
-   Compiling futures-intrusive v0.5.0
    Compiling tokio-stream v0.1.18
-   Compiling darling v0.23.0
-    Checking tokio-util v0.7.18
-    Checking tokio-native-tls v0.3.1
-   Compiling unicode-normalization v0.1.25
-    Checking http-body v0.4.6
-    Checking alloy-consensus-any v0.7.3
-    Checking h2 v0.3.27
-    Checking h2 v0.4.13
-    Checking alloy-network-primitives v0.7.3
+    Checking alloy-eips v0.7.3
     Checking itertools v0.13.0
+   Compiling futures-intrusive v0.5.0
+   Compiling windows-sys v0.48.0
+    Checking alloy-consensus v0.7.3
    Compiling hashlink v0.8.4
-    Checking serde_urlencoded v0.7.1
     Checking kasuari v0.4.11
+   Compiling darling v0.23.0
+   Compiling unicode-normalization v0.1.25
    Compiling atoi v2.0.0
    Compiling home v0.5.12
-   Compiling erasable v1.3.0
     Checking lru v0.16.3
-   Compiling heck v0.4.1
-   Compiling proc-macro-error-attr v1.0.4
     Checking windows-strings v0.5.1
     Checking windows-result v0.4.1
-    Checking encoding_rs v0.8.35
-   Compiling unicode-bidi v0.3.18
+    Checking powerfmt v0.2.0
     Checking pin-utils v0.1.0
    Compiling hex v0.4.3
-    Checking httpdate v1.0.3
-   Compiling unicode-properties v0.1.4
+   Compiling unicode-bidi v0.3.18
+   Compiling syn v1.0.109
    Compiling event-listener v2.5.3
-    Checking powerfmt v0.2.0
-    Checking windows-registry v0.6.1
-   Compiling stringprep v0.1.5
+   Compiling unicode-properties v0.1.4
     Checking deranged v0.5.6
-   Compiling darling_macro v0.13.4
+    Checking windows-registry v0.6.1
+    Checking tokio-util v0.7.18
+    Checking tokio-native-tls v0.3.1
+    Checking alloy-consensus-any v0.7.3
+    Checking alloy-network-primitives v0.7.3
+   Compiling stringprep v0.1.5
     Checking ratatui-core v0.1.0
-   Compiling hkdf v0.12.4
    Compiling etcetera v0.8.0
-   Compiling sqlx-core v0.7.4
-    Checking futures-executor v0.3.32
+   Compiling hkdf v0.12.4
+    Checking h2 v0.4.13
    Compiling async-trait v0.1.89
    Compiling md-5 v0.10.6
     Checking sync_wrapper v1.0.2
-   Compiling proc-macro-error v1.0.4
-   Compiling whoami v1.6.1
-    Checking num-conv v0.2.0
-   Compiling litrs v1.0.0
-   Compiling dotenvy v0.15.7
-    Checking time-core v0.1.8
-   Compiling fastrand v2.3.0
     Checking tower-layer v0.3.3
+   Compiling base64 v0.21.7
+    Checking num-conv v0.2.0
+   Compiling dotenvy v0.15.7
+   Compiling litrs v1.0.0
+   Compiling fastrand v2.3.0
     Checking base64 v0.22.1
-    Checking tower v0.5.3
+    Checking ipnet v2.11.0
+   Compiling whoami v1.6.1
+   Compiling sqlx-core v0.7.4
+    Checking time-core v0.1.8
    Compiling tempfile v3.25.0
-    Checking hyper v0.14.32
     Checking time v0.3.47
-    Checking hyper v1.8.1
    Compiling document-features v0.2.12
-    Checking futures v0.3.32
-   Compiling darling v0.13.4
+    Checking tower v0.5.3
     Checking alloy-signer v0.7.3
-    Checking rustls-pemfile v1.0.4
-    Checking http-body-util v0.1.3
-    Checking chrono v0.4.43
-    Checking winreg v0.50.0
-    Checking hyper-util v0.1.20
-   Compiling pin-project-internal v1.1.10
-   Compiling sqlx-postgres v0.7.4
     Checking crossterm_winapi v0.9.1
+    Checking http-body-util v0.1.3
     Checking winapi-util v0.1.11
     Checking line-clipping v0.3.5
     Checking sha1 v0.10.6
-    Checking futures-utils-wasm v0.1.0
-    Checking sync_wrapper v0.1.2
+   Compiling heck v0.4.1
     Checking regex-syntax v0.8.9
-    Checking utf-8 v0.7.6
     Checking data-encoding v2.10.0
-   Compiling convert_case v0.4.0
     Checking iri-string v0.7.10
+    Checking futures-utils-wasm v0.1.0
+    Checking utf-8 v0.7.6
+    Checking same-file v1.0.6
     Checking tungstenite v0.24.0
     Checking ratatui-widgets v0.3.0
-    Checking uuid v1.21.0
-   Compiling derive_more v0.99.20
-    Checking pin-project v1.1.10
-    Checking hyper-tls v0.6.0
-    Checking regex-automata v0.4.14
-    Checking same-file v1.0.6
     Checking crossterm v0.29.0
-    Checking rc-box v1.3.0
-    Checking alloy-rpc-types-eth v0.7.3
-    Checking hyper-tls v0.5.0
-    Checking alloy-json-rpc v0.7.3
-   Compiling serde_with_macros v1.5.2
-    Checking reqwest v0.11.27
-   Compiling itertools v0.9.0
-    Checking toml_datetime v0.6.11
     Checking serde_spanned v0.6.9
-    Checking tower-http v0.6.8
+    Checking toml_datetime v0.6.11
+    Checking serde_urlencoded v0.7.1
+    Checking regex-automata v0.4.14
     Checking rustls-pki-types v1.14.0
-    Checking bitflags v1.3.2
-    Checking toml_write v0.1.2
-    Checking never v0.1.0
-    Checking winnow v0.7.14
-   Compiling anyhow v1.0.101
-    Checking take_mut v0.2.2
+    Checking encoding_rs v0.8.35
     Checking lazy_static v1.5.0
-    Checking takecell v0.1.1
-    Checking reqwest v0.12.28
-    Checking sharded-slab v0.1.7
-    Checking ratatui-crossterm v0.1.0
-   Compiling aquamarine v0.1.12
+   Compiling sqlx-postgres v0.7.4
+    Checking winnow v0.7.14
+    Checking hyper v1.8.1
+    Checking tower-http v0.6.8
+    Checking mime v0.3.17
+   Compiling anyhow v1.0.101
+    Checking toml_write v0.1.2
     Checking ratatui-macros v0.7.0
-    Checking walkdir v2.5.0
+    Checking ratatui-crossterm v0.1.0
+    Checking sharded-slab v0.1.7
     Checking tokio-tungstenite v0.24.0
-    Checking matchers v0.2.0
-    Checking dptree v0.3.0
-   Compiling teloxide-macros v0.7.1
+    Checking walkdir v2.5.0
     Checking crossbeam-channel v0.5.15
-   Compiling sqlx-macros-core v0.7.4
+    Checking hyper-util v0.1.20
+    Checking futures-executor v0.3.32
+    Checking chrono v0.4.43
    Compiling rust_decimal_macros v1.40.0
     Checking nu-ansi-term v0.50.3
     Checking tracing-log v0.2.0
-    Checking filetime v0.2.27
-    Checking alloy-rpc-types-any v0.7.3
+    Checking matchers v0.2.0
     Checking thread_local v1.1.9
+    Checking filetime v0.2.27
+    Checking futures v0.3.32
     Checking ratatui v0.30.0
     Checking notify v6.1.1
-    Checking alloy-network v0.7.3
-    Checking tracing-subscriber v0.3.22
     Checking dashmap v5.5.3
-    Checking alloy-signer-local v0.7.3
-    Checking teloxide-core v0.9.1
+    Checking tracing-subscriber v0.3.22
     Checking toml_edit v0.22.27
-    Checking polymarket-rs v0.2.0
-   Compiling sqlx-macros v0.7.4
+    Checking hyper-tls v0.6.0
+    Checking reqwest v0.12.28
+    Checking alloy-rpc-types-eth v0.7.3
+    Checking alloy-json-rpc v0.7.3
     Checking toml v0.8.23
+   Compiling sqlx-macros-core v0.7.4
+   Compiling sqlx-macros v0.7.4
+    Checking alloy-rpc-types-any v0.7.3
+    Checking alloy-network v0.7.3
+    Checking alloy-signer-local v0.7.3
+    Checking polymarket-rs v0.2.0
     Checking sqlx v0.7.4
-    Checking teloxide v0.12.2
     Checking poly-apex-copy v0.1.0 (D:\Poly Projects\New Era\Beast-Copy)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 51.75s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.56s
 warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
 note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
