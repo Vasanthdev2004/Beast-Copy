@@ -164,13 +164,9 @@ impl RtdsEngine {
                                 }
                                 
                                 // A "SELL" event means the whale is liquidating/taking profit.
-                                // We should NOT map "SELL Yes" to "Buy No" because that opens a new opposite position.
-                                // For a pure copy-trader, we only copy conviction entries (BUY).
-                                if side_str.eq_ignore_ascii_case("SELL") {
-                                    continue;
-                                }
+                                let is_sell = side_str.eq_ignore_ascii_case("SELL");
 
-                                // Map side correctly for BUY orders
+                                // Map side accurately
                                 let side = if outcome.eq_ignore_ascii_case("No") {
                                     Side::No
                                 } else {
@@ -204,6 +200,7 @@ impl RtdsEngine {
                                         price,
                                         market_id: condition_id.to_string(),
                                         timestamp_ms: timestamp * 1000,
+                                        is_sell,
                                     };
                                     
                                     let _ = log_tx.send(LogEntry {

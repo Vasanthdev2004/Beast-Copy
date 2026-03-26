@@ -1,13 +1,11 @@
-    Checking poly-apex-copy v0.1.0 (D:\Poly Projects\New Era\Beast-Copy)
-warning: unused variable: `log_file`
- --> src\utils\logger.rs:9:9
-  |
-9 |     let log_file = fs::OpenOptions::new()
-  |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_log_file`
-  |
-  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
-
-warning: `poly-apex-copy` (bin "poly-apex-copy") generated 1 warning (run `cargo fix --bin "poly-apex-copy" -p poly-apex-copy` to apply 1 suggestion)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.51s
-warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
-note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+ Downloading crates ...
+  Downloaded tokio-tungstenite v0.29.0
+  Downloaded tungstenite v0.29.0
+   Compiling getrandom v0.3.4
+   Compiling thiserror v2.0.18
+   Compiling ahash v0.8.12
+   Compiling hashbrown v0.14.5
+    Checking rand_core v0.9.5
+    Checking alloy-json-rpc v0.7.3
+    Checking alloy-signer v0.7.3
+^C

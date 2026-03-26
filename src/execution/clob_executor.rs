@@ -20,6 +20,7 @@ pub struct ClobExecutor {
     log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     position_tracker: Arc<PositionTracker>,
     usdc_balance: Arc<RwLock<Decimal>>,
+    db_client: Option<Arc<crate::storage::db::DbClient>>,
 }
 
 impl ClobExecutor {
@@ -30,6 +31,7 @@ impl ClobExecutor {
         log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
         position_tracker: Arc<PositionTracker>,
         usdc_balance: Arc<RwLock<Decimal>>,
+        db_client: Option<Arc<crate::storage::db::DbClient>>,
     ) -> Self {
         let pkey_str = std::env::var("WALLET_PRIVATE_KEY").unwrap_or_default();
         let mut trading_client = None;
@@ -69,6 +71,7 @@ impl ClobExecutor {
             log_tx,
             position_tracker,
             usdc_balance,
+            db_client,
         }
     }
 
@@ -84,7 +87,45 @@ impl ClobExecutor {
         let config = self.config.read().await;
         
         if config.copy.preview_mode {
-            // ── Paper Trading: deduct from balance, track position ──
+            if intent.is_sell {
+                // Find and remove paper position
+                let mut found_key = None;
+                for entry in self.position_tracker.positions.iter() {
+                    let pos = entry.value();
+                    if pos.market_id == intent.market_id && pos.side == intent.side && pos.source_wallet == intent.source_wallet {
+                        found_key = Some(entry.key().clone());
+                        break;
+                    }
+                }
+                if let Some(key) = found_key {
+                    if let Some((_, old_pos)) = self.position_tracker.positions.remove(&key) {
+                        let shares = if old_pos.entry_price > rust_decimal_macros::dec!(0.0) { old_pos.size / old_pos.entry_price } else { old_pos.size };
+                        let revenue = (shares * intent.price).round_dp(2);
+                        {
+                            *self.usdc_balance.write().await += revenue;
+                        }
+                        let pnl = revenue - old_pos.size;
+                        
+                        let side_str = match intent.side { Side::Yes => "YES", Side::No => "NO" };
+                        let bal = *self.usdc_balance.read().await;
+                        let _ = self.log_tx.send(crate::types::LogEntry {
+                            time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                            kind: "SETTLE".to_string(),
+                            message: format!("Sold {} shares of {} for ${:.2} (PnL: ${:.2}) | bal ${:.2}", 
+                                shares.round_dp(2), side_str, revenue, pnl, bal),
+                        });
+
+                        // Clean up Database row so it doesn't resurrect on bot reload
+                        if let Some(db) = &self.db_client {
+                            let side_db = match intent.side { Side::Yes => "Yes", Side::No => "No" };
+                            let _ = db.delete_position(&intent.market_id, side_db, &intent.source_wallet.to_string()).await;
+                        }
+                    }
+                }
+                return;
+            }
+
+            // ── Paper Trading (Entry): deduct from balance, track position ──
             let cost = (intent.size * intent.price).round_dp(2);
             let price = intent.price.round_dp(2);
             
@@ -148,9 +189,13 @@ impl ClobExecutor {
         info!("Sending order to Polymarket CLOB: {:?}", intent);
         
         if let Some(client) = &self.trading_client {
-            // On Polymarket CLOB, you always BUY a token. The asset_id (token_id)
-            // already distinguishes YES vs NO token. "Sell" is only for closing positions.
-            let side = polymarket_rs::types::Side::Buy;
+            // On Polymarket CLOB, if we are opening a position we BUY the token (YES or NO asset_id).
+            // If we are closing, we SELL the token we hold.
+            let side = if intent.is_sell {
+                polymarket_rs::types::Side::Sell
+            } else {
+                polymarket_rs::types::Side::Buy
+            };
 
             let ord = OrderArgs {
                 token_id: intent.asset_id.clone(),
@@ -232,6 +277,25 @@ impl ClobExecutor {
                             (intent.price * Decimal::from(100)).round_dp(0),
                             order_id_str),
                     });
+
+                    // If this was a Smart Sell (Live), physically purge it from Memory & DB
+                    if confirmed_status == OrderStatus::Filled && intent.is_sell {
+                        let mut found_key = None;
+                        for entry in self.position_tracker.positions.iter() {
+                            let pos = entry.value();
+                            if pos.market_id == intent.market_id && pos.side == intent.side && pos.source_wallet == intent.source_wallet {
+                                found_key = Some(entry.key().clone());
+                                break;
+                            }
+                        }
+                        if let Some(key) = found_key {
+                            self.position_tracker.positions.remove(&key);
+                            if let Some(db) = &self.db_client {
+                                let side_db = match intent.side { Side::Yes => "Yes", Side::No => "No" };
+                                let _ = db.delete_position(&intent.market_id, side_db, &intent.source_wallet.to_string()).await;
+                            }
+                        }
+                    }
                     
                     let result = OrderResult {
                         order_id: order_id_str,

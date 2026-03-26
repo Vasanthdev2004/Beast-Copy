@@ -63,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
         bot_state.clone(),
         usdc_balance.clone(),
+        position_tracker.clone(),
         log_tx.clone(),
     );
 
@@ -77,6 +78,23 @@ async fn main() -> anyhow::Result<()> {
         log_tx.clone(),
     );
 
+    // 6. DB Initialization & State Recovery
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/poly_apex".to_string());
+    
+    let db_client_arc = if let Ok(client) = storage::db::DbClient::new(&db_url).await {
+        // Recover previous state
+        if let Ok(positions) = client.load_active_positions().await {
+            for pos in positions {
+                let key = format!("live-{}-{}", pos.market_id, pos.opened_at);
+                position_tracker.positions.insert(key, pos);
+            }
+        }
+        Some(Arc::new(client))
+    } else {
+        tracing::warn!("Failed to connect to database. Running without persistent storage.");
+        None
+    };
+
     // CLOB Executor
     let clob_executor = execution::clob_executor::ClobExecutor::new(
         clob_rx,
@@ -85,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
         log_tx.clone(),
         position_tracker.clone(),
         usdc_balance.clone(),
+        db_client_arc.clone(),
     ).await;
 
     // Settlement Monitor
@@ -99,10 +118,8 @@ async fn main() -> anyhow::Result<()> {
         daily_loss.clone(),
     );
 
-    // 6. Database Async Flush (Every 30s)
-    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/poly_apex".to_string());
-    if let Ok(db_client) = storage::db::DbClient::new(&db_url).await {
-        let db_client = Arc::new(db_client);
+    // 7. Database Async Flush (Every 30s)
+    if let Some(db_client) = db_client_arc {
         let wt = wallet_tracker.clone();
         let pt = position_tracker.clone();
         tokio::spawn(async move {
@@ -121,34 +138,43 @@ async fn main() -> anyhow::Result<()> {
             }
         });
         info!("TimescaleDB async flush enabled.");
-    } else {
-        tracing::warn!("Failed to connect to database. Running without persistent storage.");
     }
 
-    // PnL Estimation Loop (updates position P&L estimates every 30s)
+    // PnL Estimation Loop (updates position P&L estimates every 15s)
     {
         let pnl_pt = position_tracker.clone();
         tokio::spawn(async move {
+            let client = reqwest::Client::new();
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
                 
                 let keys: Vec<String> = pnl_pt.positions.iter().map(|e| e.key().clone()).collect();
                 for key in keys {
                     if let Some(mut pos) = pnl_pt.positions.get_mut(&key) {
-                        // For prediction markets: estimate PnL as (current_price - entry_price) * shares
-                        // Real PnL is only known at market resolution
-                        // shares = cost / entry_price
-                        let _shares = if pos.entry_price > Decimal::ZERO {
+                        let shares = if pos.entry_price > rust_decimal_macros::dec!(0.0) {
                             pos.size / pos.entry_price
                         } else {
                             pos.size
                         };
                         
-                        // Mark-to-entry estimation
-                        // Real P&L = shares * (current_market_price - entry_price)
-                        // TODO: Integrate market price feed for real-time PnL
-                        let estimated_pnl = Decimal::ZERO; // Cost-basis until price feeds available
-                        pos.pnl = Some(estimated_pnl);
+                        let url = format!("https://clob.polymarket.com/markets/{}", pos.market_id);
+                        if let Ok(res) = client.get(&url).send().await {
+                            if let Ok(json) = res.json::<serde_json::Value>().await {
+                                if let Some(tokens) = json.get("tokens").and_then(|t| t.as_array()) {
+                                    let target_outcome = match pos.side { crate::types::Side::Yes => "Yes", crate::types::Side::No => "No" };
+                                    for t in tokens {
+                                        if t.get("outcome").and_then(|v| v.as_str()).unwrap_or("") == target_outcome {
+                                            if let Some(price_f64) = t.get("price").and_then(|v| v.as_f64()) {
+                                                if let Some(current_price) = Decimal::from_f64_retain(price_f64) {
+                                                    let estimated_pnl = (shares * current_price) - pos.size;
+                                                    pos.pnl = Some(estimated_pnl.round_dp(2));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

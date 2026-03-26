@@ -1,6 +1,7 @@
 use sqlx::{Pool, Postgres};
 use anyhow::Result;
 use tracing::info;
+use sqlx::Row;
 use crate::types::{Position, WalletScore};
 
 pub struct DbClient {
@@ -71,6 +72,63 @@ impl DbClient {
         .execute(&self.pool)
         .await?;
 
+        Ok(())
+    }
+
+    pub async fn load_active_positions(&self) -> Result<Vec<Position>> {
+        info!("Loading active positions from TSDB on startup...");
+        let rows = sqlx::query(
+            r#"
+            SELECT market_id, side, size, entry_price, source_wallet, opened_at, pnl 
+            FROM trades
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut positions = Vec::new();
+        for row in rows {
+            let side_str: String = row.get("side");
+            let side = if side_str == "Yes" {
+                crate::types::Side::Yes
+            } else {
+                crate::types::Side::No
+            };
+
+            let sw_str: String = row.get("source_wallet");
+            let source_wallet = match std::str::FromStr::from_str(&sw_str) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            let opened_at_i64: i64 = row.get("opened_at");
+            
+            positions.push(Position {
+                market_id: row.get("market_id"),
+                side,
+                size: row.get("size"),
+                entry_price: row.get("entry_price"),
+                source_wallet,
+                opened_at: opened_at_i64 as u64,
+                pnl: Some(row.get("pnl")),
+            });
+        }
+        
+        info!("Loaded {} active positions from DB.", positions.len());
+        Ok(positions)
+    }
+
+    pub async fn delete_position(&self, market_id: &str, side_str: &str, wallet: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            DELETE FROM trades WHERE market_id = $1 AND side = $2 AND source_wallet = $3
+            "#
+        )
+        .bind(market_id)
+        .bind(side_str)
+        .bind(wallet)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

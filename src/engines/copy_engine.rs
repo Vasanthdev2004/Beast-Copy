@@ -19,6 +19,7 @@ pub struct CopyEngine {
     config: Arc<RwLock<AppConfig>>,
     bot_state: Arc<RwLock<BotState>>,
     portfolio_balance: Arc<RwLock<Decimal>>,
+    position_tracker: Arc<crate::engines::position_tracker::PositionTracker>,
     recent_trades: Arc<dashmap::DashMap<String, u64>>,
     log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
 }
@@ -31,6 +32,7 @@ impl CopyEngine {
         config: Arc<RwLock<AppConfig>>,
         bot_state: Arc<RwLock<BotState>>,
         portfolio_balance: Arc<RwLock<Decimal>>,
+        position_tracker: Arc<crate::engines::position_tracker::PositionTracker>,
         log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     ) -> Self {
         Self {
@@ -40,6 +42,7 @@ impl CopyEngine {
             config,
             bot_state,
             portfolio_balance,
+            position_tracker,
             recent_trades: Arc::new(dashmap::DashMap::new()),
             log_tx,
         }
@@ -130,6 +133,57 @@ impl CopyEngine {
             return;
         }
 
+        if event.is_sell {
+            let exact_price = if event.price > rust_decimal_macros::dec!(0.0) { event.price } else { rust_decimal_macros::dec!(0.0001) };
+
+            let mut matching_pos_key = None;
+            for entry in self.position_tracker.positions.iter() {
+                let pos = entry.value();
+                if pos.market_id == event.market_id && pos.side == event.side && pos.source_wallet == event.wallet {
+                    matching_pos_key = Some(entry.key().clone());
+                    break;
+                }
+            }
+
+            if let Some(key) = matching_pos_key {
+                let pos = self.position_tracker.positions.get(&key).unwrap().clone();
+                let intent_shares = if pos.entry_price > rust_decimal_macros::dec!(0.0) {
+                    (pos.size / pos.entry_price).round_dp(4)
+                } else {
+                    pos.size
+                };
+
+                let intent = OrderIntent {
+                    market_id: event.market_id.clone(),
+                    asset_id: event.asset_id.clone(),
+                    side: event.side,
+                    size: intent_shares,
+                    price: exact_price,
+                    order_type: OrderType::FOK,
+                    source_wallet: event.wallet,
+                    is_sell: true,
+                };
+
+                let _ = self.log_tx.send(crate::types::LogEntry {
+                    time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                    kind: "LIQUIDATE".to_string(),
+                    message: format!("Mirror SELL of {} shares at ¢{}", 
+                        intent_shares.round_dp(2), (exact_price * rust_decimal_macros::dec!(100)).round_dp(0)),
+                });
+
+                if let Err(e) = self.intent_tx.send(intent).await {
+                    error!("Failed to send liquidate intent: {}", e);
+                }
+            } else {
+                let _ = self.log_tx.send(crate::types::LogEntry {
+                    time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                    kind: "SKIP".to_string(),
+                    message: format!("Whale sold {}, but no local position found.", if event.side == crate::types::Side::Yes {"YES"} else {"NO"}),
+                });
+            }
+            return;
+        }
+
         let config = self.config.read().await;
 
         let dedup_key = format!("{}-{}-{:?}", event.wallet, event.market_id, event.side);
@@ -188,6 +242,7 @@ impl CopyEngine {
             price: event.price,
             order_type: OrderType::FOK,
             source_wallet: event.wallet,
+            is_sell: false,
         };
 
         let _ = self.log_tx.send(crate::types::LogEntry {

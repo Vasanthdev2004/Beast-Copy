@@ -22,6 +22,7 @@ pub struct TradeEvent {
     pub price:        Decimal,
     pub market_id:    String,
     pub timestamp_ms: u64,
+    pub is_sell:      bool,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +34,7 @@ pub struct OrderIntent {
     pub price:      Decimal,
     pub order_type: OrderType,
     pub source_wallet: Address,
+    pub is_sell:    bool,
 }
 
 #[derive(Debug, Clone)]
