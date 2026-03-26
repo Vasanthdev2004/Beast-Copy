@@ -109,19 +109,27 @@ impl RtdsEngine {
         });
 
         // Subscribe to activity/trades stream (all trades, no auth)
-        // The Polymarket RTDS protocol expects a subscription message.
+        // The Polymarket RTDS protocol expects this exact format.
         // Server-side filtering by slug is broken, so we use empty filter
         // and filter client-side by watched wallet addresses.
         let subscribe_msg = serde_json::json!({
-            "type": "subscribe",
-            "channel": "trades",
+            "action": "subscribe",
+            "subscriptions": [{
+                "topic": "activity",
+                "type": "trades",
+                "filters": ""
+            }]
         });
         write.send(Message::Text(subscribe_msg.to_string().into())).await?;
-        info!("Subscribed to RTDS trades channel");
+        info!("Subscribed to RTDS activity/trades channel");
 
-        // Periodic eviction + heartbeat
+        // Keepalive: docs require PING every 5s to maintain connection
+        let mut ping_interval = tokio::time::interval(Duration::from_secs(5));
+        ping_interval.tick().await; // consume first immediate tick
+
+        // Periodic eviction (every 5 minutes)
         let mut evict_interval = tokio::time::interval(Duration::from_secs(300));
-        evict_interval.tick().await; // consume first immediate tick
+        evict_interval.tick().await;
 
         loop {
             tokio::select! {
@@ -145,6 +153,12 @@ impl RtdsEngine {
                             return Ok(());
                         }
                         _ => {} // Binary, Pong, Frame — ignore
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if let Err(e) = write.send(Message::Ping(vec![].into())).await {
+                        warn!("PING send failed: {} — reconnecting", e);
+                        return Err(Box::new(e));
                     }
                 }
                 _ = evict_interval.tick() => {
