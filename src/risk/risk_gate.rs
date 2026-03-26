@@ -17,7 +17,7 @@ pub struct RiskGate {
     config: Arc<RwLock<AppConfig>>,
     position_tracker: Arc<PositionTracker>,
     consecutive_losses: Arc<AtomicUsize>,
-    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     daily_loss: Arc<RwLock<Decimal>>,
     market_cooldowns: Arc<RwLock<HashMap<String, u64>>>,
     halted_at: Arc<RwLock<Option<std::time::Instant>>>,
@@ -31,7 +31,7 @@ impl RiskGate {
         config: Arc<RwLock<AppConfig>>,
         position_tracker: Arc<PositionTracker>,
         consecutive_losses: Arc<AtomicUsize>,
-        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     ) -> Self {
         Self {
             intent_rx,
@@ -75,7 +75,7 @@ impl RiskGate {
                         *self.halted_at.write().await = None;
                         *self.bot_state.write().await = BotState::Running;
                         self.consecutive_losses.store(0, Ordering::SeqCst);
-                        let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                        let _ = self.log_tx.send(crate::types::LogEntry {
                             time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                             kind: "RISK".to_string(),
                             message: format!("Auto-resumed after {}m halt", halt_mins),
@@ -113,7 +113,7 @@ impl RiskGate {
         if losses >= config.risk.consecutive_loss_halt {
             *self.halted_at.write().await = Some(std::time::Instant::now());
             *self.bot_state.write().await = BotState::Halted;
-            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+            let _ = self.log_tx.send(crate::types::LogEntry {
                 time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                 kind: "RISK".to_string(),
                 message: format!("HALTED: {} consecutive losses (auto-resume in {}m)", losses, config.risk.halt_duration_mins),
@@ -168,7 +168,7 @@ impl RiskGate {
     }
 
     async fn log_skip(&self, msg: &str) {
-        let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+        let _ = self.log_tx.send(crate::types::LogEntry {
             time: chrono::Utc::now().format("%H:%M:%S").to_string(),
             kind: "SKIP".to_string(),
             message: msg.to_string(),

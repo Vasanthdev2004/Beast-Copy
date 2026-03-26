@@ -20,7 +20,7 @@ pub struct CopyEngine {
     bot_state: Arc<RwLock<BotState>>,
     portfolio_balance: Arc<RwLock<Decimal>>,
     recent_trades: Arc<dashmap::DashMap<String, u64>>,
-    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
 }
 
 impl CopyEngine {
@@ -31,7 +31,7 @@ impl CopyEngine {
         config: Arc<RwLock<AppConfig>>,
         bot_state: Arc<RwLock<BotState>>,
         portfolio_balance: Arc<RwLock<Decimal>>,
-        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     ) -> Self {
         Self {
             trade_rx,
@@ -190,7 +190,7 @@ impl CopyEngine {
             source_wallet: event.wallet,
         };
 
-        let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+        let _ = self.log_tx.send(crate::types::LogEntry {
             time: chrono::Utc::now().format("%H:%M:%S").to_string(),
             kind: "COPY".to_string(),
             message: format!("Wallet 0x{}…{} size: {} shares (${:.2})", 

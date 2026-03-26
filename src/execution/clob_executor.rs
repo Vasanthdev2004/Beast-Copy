@@ -17,7 +17,7 @@ pub struct ClobExecutor {
     result_tx: mpsc::Sender<OrderResult>,
     config: Arc<RwLock<AppConfig>>,
     trading_client: Option<Arc<TradingClient>>,
-    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     position_tracker: Arc<PositionTracker>,
     usdc_balance: Arc<RwLock<Decimal>>,
 }
@@ -27,7 +27,7 @@ impl ClobExecutor {
         intent_rx: mpsc::Receiver<OrderIntent>,
         result_tx: mpsc::Sender<OrderResult>,
         config: Arc<RwLock<AppConfig>>,
-        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
         position_tracker: Arc<PositionTracker>,
         usdc_balance: Arc<RwLock<Decimal>>,
     ) -> Self {
@@ -91,7 +91,7 @@ impl ClobExecutor {
             {
                 let mut bal = self.usdc_balance.write().await;
                 if *bal < cost {
-                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                    let _ = self.log_tx.send(crate::types::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: "SKIP".to_string(),
                         message: format!("Insufficient balance ${:.2} for ${:.2}", *bal, cost),
@@ -118,7 +118,7 @@ impl ClobExecutor {
 
             let side_str = match intent.side { Side::Yes => "YES", Side::No => "NO" };
             let bal = *self.usdc_balance.read().await;
-            let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+            let _ = self.log_tx.send(crate::types::LogEntry {
                 time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                 kind: "FILL".to_string(),
                 message: format!("{} ${:.2} @¢{} | bal ${:.2}", 
@@ -223,7 +223,7 @@ impl ClobExecutor {
                         OrderStatus::Timeout => "ERR",
                     };
                     
-                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                    let _ = self.log_tx.send(crate::types::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: fill_label.to_string(),
                         message: format!("LIVE {} ${:.2} @¢{} ID:{}", 
@@ -248,7 +248,7 @@ impl ClobExecutor {
                     let _ = self.result_tx.send(result).await;
                 }
                 Err(e) => {
-                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                    let _ = self.log_tx.send(crate::types::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: "ERR".to_string(),
                         message: format!("Rejected: {:?}", e),

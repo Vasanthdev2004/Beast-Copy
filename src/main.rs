@@ -4,7 +4,7 @@ pub mod execution;
 pub mod risk;
 pub mod storage;
 pub mod telegram;
-pub mod tui;
+pub mod api;
 pub mod types;
 pub mod utils;
 
@@ -47,8 +47,8 @@ async fn main() -> anyhow::Result<()> {
     let (clob_tx, clob_rx) = mpsc::channel::<OrderIntent>(1000);
     // ClobExecutor -> SettlementMonitor
     let (result_tx, result_rx) = mpsc::channel::<OrderResult>(1000);
-    // Any -> TUI Dashboard
-    let (log_tx, log_rx) = tokio::sync::mpsc::unbounded_channel::<crate::tui::dashboard::LogEntry>();
+    // Any -> API Dashboard
+    let (log_tx, log_rx) = tokio::sync::mpsc::unbounded_channel::<crate::types::LogEntry>();
 
     // 5. Instantiate Modules
     
@@ -189,8 +189,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 8. (Removed local usdc_balance, it was moved up to shared state)
 
-    // 9. Launch TUI Dashboard (runs on main thread)
-    let dashboard_state = Arc::new(tui::dashboard::DashboardState::new(
+    // 9. Launch API Web Server Dashboard (runs on main thread)
+    let app_state = Arc::new(api::server::AppState::new(
         config.clone(),
         bot_state.clone(),
         wallet_tracker.clone(),
@@ -200,10 +200,10 @@ async fn main() -> anyhow::Result<()> {
         initial_balance,
     ));
 
-    tui::dashboard::run_dashboard(dashboard_state, log_rx).await.ok();
+    api::server::run_server(app_state, log_rx).await;
 
     // Graceful shutdown: halt the pipeline so no new orders are submitted
-    info!("TUI exited — initiating graceful shutdown...");
+    info!("Web UI server exited — initiating graceful shutdown...");
     *bot_state.write().await = BotState::Halted;
     
     // Give in-flight orders time to settle (2 seconds grace period)

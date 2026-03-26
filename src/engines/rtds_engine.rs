@@ -4,7 +4,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 use tokio::sync::broadcast;
 use crate::types::{TradeEvent, Side};
-use crate::tui::dashboard::LogEntry;
+use crate::types::LogEntry;
 use crate::engines::wallet_tracker::WalletTracker;
 use alloy_primitives::Address;
 use rust_decimal::Decimal;

@@ -19,8 +19,8 @@ pub fn init() {
         .with_env_filter(filter)
         .with_target(false)
         .with_thread_ids(true)
-        .with_ansi(false)          // No ANSI colors in log file
-        .with_writer(log_file)     // Write to file, not stdout
+        .with_ansi(true)           // Enable ANSI colors for terminal
+        .with_writer(std::io::stdout) // Write to stdout instead of file
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)

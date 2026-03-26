@@ -13,7 +13,7 @@ pub struct SettlementMonitor {
     position_tracker: Arc<PositionTracker>,
     config: Arc<RwLock<AppConfig>>,
     consecutive_losses: Arc<AtomicUsize>,
-    log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+    log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     usdc_balance: Arc<RwLock<Decimal>>,
     daily_loss: Arc<RwLock<Decimal>>,
 }
@@ -24,7 +24,7 @@ impl SettlementMonitor {
         position_tracker: Arc<PositionTracker>,
         config: Arc<RwLock<AppConfig>>,
         consecutive_losses: Arc<AtomicUsize>,
-        log_tx: tokio::sync::mpsc::UnboundedSender<crate::tui::dashboard::LogEntry>,
+        log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
         usdc_balance: Arc<RwLock<Decimal>>,
         daily_loss: Arc<RwLock<Decimal>>,
     ) -> Self {
@@ -69,13 +69,13 @@ impl SettlementMonitor {
 
                 let mode_str = if config.copy.preview_mode { "PAPER" } else { "LIVE" };
                 if let Some(tx_hash) = result.tx_hash {
-                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                    let _ = self.log_tx.send(crate::types::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: "SETTLE".to_string(),
                         message: format!("{} Settled TX: {:?}", mode_str, tx_hash),
                     });
                 } else {
-                    let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                    let _ = self.log_tx.send(crate::types::LogEntry {
                         time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                         kind: "SETTLE".to_string(),
                         message: format!("{} Settled: {} ${:.2}", mode_str, result.order_id, result.size.round_dp(2)),
@@ -89,7 +89,7 @@ impl SettlementMonitor {
                     *bal += result.size;
                 }
                 
-                let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                let _ = self.log_tx.send(crate::types::LogEntry {
                     time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                     kind: "ERR".to_string(),
                     message: format!("Order rejected: {} (balance refunded)", result.order_id),
@@ -103,7 +103,7 @@ impl SettlementMonitor {
                     *bal += result.size;
                 }
                 
-                let _ = self.log_tx.send(crate::tui::dashboard::LogEntry {
+                let _ = self.log_tx.send(crate::types::LogEntry {
                     time: chrono::Utc::now().format("%H:%M:%S").to_string(),
                     kind: "ERR".to_string(),
                     message: format!("Order timed out: {} (balance refunded)", result.order_id),

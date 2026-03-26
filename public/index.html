@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poly-Apex Dashboard</title>
+    <!-- Google Fonts for Modern Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-background"></div>
+    <div class="container">
+        <!-- HEADER -->
+        <header class="header glass-panel">
+            <div class="logo-area">
+                <div class="logo-icon">▲</div>
+                <h1>POLY-APEX <span class="subtitle">COPY TRADER</span></h1>
+            </div>
+            <div class="status-bar">
+                <div class="status-pill mode" id="botMode">LIVE</div>
+                <div class="status-pill status" id="botState">RUNNING</div>
+                <div class="status-pill uptime">⏱ <span id="uptime">0m 0s</span></div>
+            </div>
+        </header>
+
+        <!-- KPI BAR -->
+        <div class="kpi-grid">
+            <div class="kpi-card glass-panel" id="pnlCard">
+                <div class="kpi-label">Session P&L</div>
+                <div class="kpi-value pnl-value" id="sessionPnl">$0.00</div>
+            </div>
+            <div class="kpi-card glass-panel">
+                <div class="kpi-label">Portfolio Balance</div>
+                <div class="kpi-value" id="portfolioBalance">$0.00</div>
+            </div>
+            <div class="kpi-card glass-panel">
+                <div class="kpi-label">Open Positions</div>
+                <div class="kpi-value" id="openCount">0</div>
+            </div>
+            <div class="kpi-card glass-panel risk-card">
+                <div class="kpi-label">Risk Gate (Losses)</div>
+                <div class="kpi-value risk-value"><span id="lossCount">0</span> / <span id="lossLimit">3</span></div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" id="riskBar"></div></div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- LEFT COLUMN: LIVE FEED -->
+            <div class="feed-column glass-panel">
+                <div class="panel-header">
+                    <h2>⚡ Live Trade Feed</h2>
+                    <div class="pulse-dot"></div>
+                </div>
+                <div class="feed-container" id="feedContainer">
+                    <!-- Logs injected via JS -->
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: POSITIONS & WHALES -->
+            <div class="data-column">
+                <!-- POSITIONS -->
+                <div class="positions-panel glass-panel">
+                    <div class="panel-header">
+                        <h2>📋 Open Positions (<span id="modeLabel"></span>)</h2>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Market</th>
+                                    <th>Side</th>
+                                    <th>Size</th>
+                                    <th>Entry</th>
+                                    <th>P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positionsTable">
+                                <!-- Positions injected via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- WHALES -->
+                <div class="whales-panel glass-panel">
+                    <div class="panel-header">
+                        <h2>🐋 Target Wallets</h2>
+                    </div>
+                    <div class="whales-list" id="whalesList">
+                        <!-- Wallets injected via JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
