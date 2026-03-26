@@ -95,10 +95,17 @@ impl ConfigManager {
         }
         
         // ── Copy ──
-        if let Ok(v) = std::env::var("LIVE_TRADING") {
+        let live_trading_env = std::env::var("LIVE_TRADING").ok();
+        let preview_mode_env = std::env::var("PREVIEW_MODE").ok();
+        if live_trading_env.is_some() && preview_mode_env.is_some() {
+            tracing::warn!(
+                "Both LIVE_TRADING and PREVIEW_MODE env vars are set — PREVIEW_MODE takes precedence (safer option)"
+            );
+        }
+        if let Some(v) = live_trading_env {
             config.copy.preview_mode = v.to_lowercase() != "true";
         }
-        if let Ok(v) = std::env::var("PREVIEW_MODE") {
+        if let Some(v) = preview_mode_env {
             config.copy.preview_mode = v.to_lowercase() == "true";
         }
         if let Ok(v) = std::env::var("PAPER_BALANCE_USDC") {

@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::time::Duration;
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 use tokio::sync::broadcast;
 use crate::types::{TradeEvent, Side};
 use crate::types::LogEntry;
@@ -21,9 +21,6 @@ const WS_URL: &str = "wss://ws-live-data.polymarket.com";
 
 /// Maximum age of a trade (in seconds) before it is considered stale.
 const STALENESS_CUTOFF_SECS: u64 = 30;
-
-/// How long to wait before attempting reconnection after a WS drop.
-const RECONNECT_DELAY_SECS: u64 = 3;
 
 /// REST polling interval used as fallback when WS is disconnected.
 const REST_POLL_INTERVAL_SECS: u64 = 2;
@@ -197,6 +194,7 @@ impl RtdsEngine {
                                 let side_str = trade.get("side").and_then(|v| v.as_str()).unwrap_or("BUY");
                                 let condition_id = trade.get("conditionId").and_then(|v| v.as_str()).unwrap_or("");
                                 let outcome = trade.get("outcome").and_then(|v| v.as_str()).unwrap_or("");
+                                let title = trade.get("title").and_then(|v| v.as_str()).unwrap_or("");
 
                                 let price = trade.get("price")
                                     .and_then(|v| v.as_f64())
@@ -220,6 +218,7 @@ impl RtdsEngine {
                                         size: usdc_size,
                                         price,
                                         market_id: condition_id.to_string(),
+                                        market_name: title.to_string(),
                                         timestamp_ms: timestamp * 1000,
                                         is_sell,
                                     };
@@ -417,6 +416,10 @@ impl WsAccelerator {
             Side::Yes
         };
 
+        let name = trade.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
         let event = TradeEvent {
             asset_id: asset_id.to_string(),
             wallet: wallet_addr,
@@ -424,13 +427,11 @@ impl WsAccelerator {
             size: usdc_size,
             price,
             market_id: condition_id.to_string(),
+            market_name: name.to_string(),
             timestamp_ms: now_ts * 1000,
             is_sell,
         };
 
-        let name = trade.get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
         let label = if !name.is_empty() && name.len() > 30 { &name[..30] } else if name.is_empty() { outcome } else { name };
 
         let _ = self.log_tx.send(LogEntry {

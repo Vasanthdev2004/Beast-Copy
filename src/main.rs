@@ -23,7 +23,9 @@ async fn main() -> anyhow::Result<()> {
     info!("POLY-APEX starting up...");
 
     // 1b. Load .env file
-    let _ = dotenvy::dotenv();
+    if let Err(e) = dotenvy::dotenv() {
+        tracing::warn!("No .env file: {}", e);
+    }
 
     // 2. Load Config
     let config_manager = config::ConfigManager::new("config.toml").await?;
@@ -93,8 +95,7 @@ async fn main() -> anyhow::Result<()> {
         // Recover previous state
         if let Ok(positions) = client.load_active_positions().await {
             for pos in positions {
-                let key = format!("live-{}-{}", pos.market_id, pos.opened_at);
-                position_tracker.positions.insert(key, pos);
+                position_tracker.add_position(pos);
             }
         }
         Some(Arc::new(client))
@@ -137,12 +138,16 @@ async fn main() -> anyhow::Result<()> {
                 
                 // Flush positions
                 for entry in pt.positions.iter() {
-                    let _ = db_client.flush_position(entry.value()).await;
+                    if let Err(e) = db_client.flush_position(entry.value()).await {
+                        tracing::warn!("DB flush position error: {}", e);
+                    }
                 }
                 
                 // Flush wallet scores
                 for entry in wt.scores.iter() {
-                    let _ = db_client.flush_wallet_score(entry.value()).await;
+                    if let Err(e) = db_client.flush_wallet_score(entry.value()).await {
+                        tracing::warn!("DB flush wallet score error: {}", e);
+                    }
                 }
             }
         });
@@ -190,12 +195,35 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // 7. Spawn all components as Tokio Tasks
-    tokio::spawn(async move { rtds_engine.run().await; });
-    tokio::spawn(async move { copy_engine.run().await; });
-    tokio::spawn(async move { risk_gate.run().await; });
-    tokio::spawn(async move { clob_executor.run().await; });
-    tokio::spawn(async move { settlement_monitor.run().await; });
+    // 7. Spawn all components as Tokio Tasks (collect handles for monitoring)
+    let mut engine_handles: Vec<(&str, tokio::task::JoinHandle<()>)> = Vec::new();
+    engine_handles.push(("RtdsEngine", tokio::spawn(async move { rtds_engine.run().await; })));
+    engine_handles.push(("CopyEngine", tokio::spawn(async move { copy_engine.run().await; })));
+    engine_handles.push(("RiskGate", tokio::spawn(async move { risk_gate.run().await; })));
+    engine_handles.push(("ClobExecutor", tokio::spawn(async move { clob_executor.run().await; })));
+    engine_handles.push(("SettlementMonitor", tokio::spawn(async move { settlement_monitor.run().await; })));
+
+    // Monitor engine tasks — log if any exit unexpectedly
+    tokio::spawn(async move {
+        let mut handles = engine_handles;
+        while !handles.is_empty() {
+            let mut exited = Vec::new();
+            for (i, (name, handle)) in handles.iter_mut().enumerate() {
+                if handle.is_finished() {
+                    match handle.await {
+                        Ok(()) => tracing::error!("Engine task '{}' exited unexpectedly", name),
+                        Err(e) => tracing::error!("Engine task '{}' panicked: {}", name, e),
+                    }
+                    exited.push(i);
+                }
+            }
+            // Remove exited handles in reverse order to preserve indices
+            for i in exited.into_iter().rev() {
+                handles.remove(i);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+    });
 
     // Optional Auto Discovery
     if config.read().await.wallets.auto_discover {
@@ -233,6 +261,7 @@ async fn main() -> anyhow::Result<()> {
         consecutive_losses,
         usdc_balance,
         initial_balance,
+        daily_loss.clone(),
     ));
 
     api::server::run_server(app_state, log_rx).await;

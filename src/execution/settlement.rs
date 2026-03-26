@@ -64,20 +64,27 @@ impl SettlementMonitor {
 
         match result.status {
             OrderStatus::Filled => {
-                // Reset consecutive losses on successful fill
-                self.consecutive_losses.store(0, Ordering::SeqCst);
+                // Only reset consecutive losses on new entries (buys), not sells
+                if !result.is_sell {
+                    self.consecutive_losses.store(0, Ordering::SeqCst);
+                }
 
-                // Insert confirmed position from actual order data
-                let position = Position {
-                    market_id: result.market_id.clone(),
-                    side: result.side,
-                    size: result.size,
-                    entry_price: result.filled_at,
-                    source_wallet: result.source_wallet,
-                    opened_at: result.timestamp,
-                    pnl: None,
-                };
-                self.position_tracker.add_position(position);
+                // Only track new positions for buy fills (entries).
+                // Sell fills close positions — handled by ClobExecutor.
+                // Paper-mode buys also get tracked here (single source of truth).
+                if !result.is_sell {
+                    let position = Position {
+                        market_id: result.market_id.clone(),
+                        market_name: result.market_name.clone(),
+                        side: result.side,
+                        size: result.size,
+                        entry_price: result.filled_at,
+                        source_wallet: result.source_wallet,
+                        opened_at: result.timestamp,
+                        pnl: None,
+                    };
+                    self.position_tracker.add_position(position);
+                }
 
                 let mode_str = if config.copy.preview_mode { "PAPER" } else { "LIVE" };
                 if let Some(tx_hash) = result.tx_hash {

@@ -3,7 +3,7 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::{info, error};
 use rust_decimal::Decimal;
 
-use crate::types::{OrderIntent, OrderResult, OrderStatus, Side, Position};
+use crate::types::{OrderIntent, OrderResult, OrderStatus, Side};
 use crate::config::AppConfig;
 use crate::engines::position_tracker::PositionTracker;
 use polymarket_rs::client::TradingClient;
@@ -36,7 +36,7 @@ impl ClobExecutor {
         db_client: Option<Arc<crate::storage::db::DbClient>>,
         loss_tx: tokio::sync::mpsc::UnboundedSender<Decimal>,
     ) -> Self {
-        let pkey_str = std::env::var("WALLET_PRIVATE_KEY").unwrap_or_default();
+        let pkey_str = std::env::var("WALLET_PRIVATE_KEY").unwrap_or_default().trim().to_string();
         let mut trading_client = None;
         
         if let Ok(_signer) = PrivateKeySigner::from_str(&pkey_str) {
@@ -129,7 +129,7 @@ impl ClobExecutor {
                 return;
             }
 
-            // ── Paper Trading (Entry): deduct from balance, track position ──
+            // ── Paper Trading (Entry): deduct from balance, let settlement track position ──
             let cost = (intent.size * intent.price).round_dp(2);
             let price = intent.price.round_dp(2);
             
@@ -145,21 +145,6 @@ impl ClobExecutor {
                 }
                 *bal -= cost;
             }
-
-            // Track as a paper position
-            let position = Position {
-                market_id: intent.market_id.clone(),
-                side: intent.side,
-                size: cost,
-                entry_price: price,
-                source_wallet: intent.source_wallet,
-                opened_at: chrono::Utc::now().timestamp_millis() as u64,
-                pnl: None,
-            };
-            self.position_tracker.positions.insert(
-                format!("paper-{}-{}", intent.market_id, chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-                position,
-            );
 
             let side_str = match intent.side { Side::Yes => "YES", Side::No => "NO" };
             let bal = *self.usdc_balance.read().await;
@@ -177,10 +162,13 @@ impl ClobExecutor {
                 filled_at: price,
                 timestamp: chrono::Utc::now().timestamp_millis() as u64,
                 market_id: intent.market_id.clone(),
+                market_name: intent.market_name.clone(),
                 asset_id: intent.asset_id.clone(),
                 side: intent.side,
                 size: cost,
                 source_wallet: intent.source_wallet,
+                is_paper: true,
+                is_sell: false,
             };
             
             if let Err(e) = self.result_tx.send(result).await {
@@ -300,6 +288,8 @@ impl ClobExecutor {
                                     old_pos.size
                                 };
                                 let revenue = (shares * intent.price).round_dp(2);
+                                // Credit sell revenue back to USDC balance
+                                *self.usdc_balance.write().await += revenue;
                                 let pnl = revenue - old_pos.size;
 
                                 // Report realized loss so RiskGate daily_loss is kept in sync
@@ -322,10 +312,13 @@ impl ClobExecutor {
                         filled_at: intent.price,
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
                         market_id: intent.market_id.clone(),
+                        market_name: intent.market_name.clone(),
                         asset_id: intent.asset_id.clone(),
                         side: intent.side,
                         size: filled_size,
                         source_wallet: intent.source_wallet,
+                        is_paper: false,
+                        is_sell: intent.is_sell,
                     };
                     let _ = self.result_tx.send(result).await;
                 }
@@ -343,10 +336,13 @@ impl ClobExecutor {
                         filled_at: intent.price,
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
                         market_id: intent.market_id.clone(),
+                        market_name: intent.market_name.clone(),
                         asset_id: intent.asset_id.clone(),
                         side: intent.side,
                         size: intent.size,
                         source_wallet: intent.source_wallet,
+                        is_paper: false,
+                        is_sell: intent.is_sell,
                     };
                     let _ = self.result_tx.send(result).await;
                 }

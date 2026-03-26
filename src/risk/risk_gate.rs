@@ -99,6 +99,16 @@ impl RiskGate {
     }
 
     async fn pre_trade_checks(&self, intent: &OrderIntent) -> bool {
+        // 0. Sells/liquidations pass through unconditionally — must always be able to close losing positions
+        if intent.is_sell {
+            let _ = self.log_tx.send(crate::types::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "RISK".to_string(),
+                message: "LIQUIDATION passed through risk gate".to_string(),
+            });
+            return true;
+        }
+
         // 1. Bot state check
         if *self.bot_state.read().await != BotState::Running {
             self.log_skip("Bot paused/halted, skipped").await;
@@ -107,10 +117,11 @@ impl RiskGate {
 
         let config = self.config.read().await;
 
-        // 2. Min trade size
+        // 2. Min trade size (compare notional USDC value, not raw shares)
         let min_size = Decimal::from_f64_retain(config.copy.min_copy_size_usdc).unwrap_or(rust_decimal_macros::dec!(2.0));
-        if intent.size < min_size {
-            self.log_skip(&format!("Size ${:.2} below min ${:.2}", intent.size, min_size)).await;
+        let notional_usdc = intent.size * intent.price;
+        if notional_usdc < min_size {
+            self.log_skip(&format!("Notional ${:.2} below min ${:.2}", notional_usdc, min_size)).await;
             return false;
         }
 
@@ -153,7 +164,7 @@ impl RiskGate {
         let max_price = rust_decimal_macros::dec!(1.0) - (slippage_pct / rust_decimal_macros::dec!(100.0));
         let min_price = slippage_pct / rust_decimal_macros::dec!(100.0);
         if intent.price > max_price || intent.price < min_price {
-            self.log_skip(&format!("Price {:.2} outside slippage bounds ({:.2}-{:.2})", intent.price, min_price, max_price)).await;
+            self.log_skip(&format!("Price {:.2} outside safe band ({:.2}-{:.2})", intent.price, min_price, max_price)).await;
             return false;
         }
 

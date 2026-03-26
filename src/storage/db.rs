@@ -105,6 +105,7 @@ impl DbClient {
             
             positions.push(Position {
                 market_id: row.get("market_id"),
+                market_name: String::new(),
                 side,
                 size: row.get("size"),
                 entry_price: row.get("entry_price"),

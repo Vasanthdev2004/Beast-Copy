@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
+use tower_http::cors::CorsLayer;
 use rust_decimal::Decimal;
 use serde::Serialize;
 use tracing::info;
@@ -27,6 +28,7 @@ pub struct AppState {
     pub usdc_balance: Arc<RwLock<Decimal>>,
     pub initial_balance: Decimal,
     pub start_time: std::time::Instant,
+    pub daily_loss: Arc<RwLock<Decimal>>,
 }
 
 impl AppState {
@@ -38,6 +40,7 @@ impl AppState {
         consecutive_losses: Arc<std::sync::atomic::AtomicUsize>,
         usdc_balance: Arc<RwLock<Decimal>>,
         initial_balance: Decimal,
+        daily_loss: Arc<RwLock<Decimal>>,
     ) -> Self {
         Self {
             config,
@@ -49,6 +52,7 @@ impl AppState {
             usdc_balance,
             initial_balance,
             start_time: std::time::Instant::now(),
+            daily_loss,
         }
     }
 }
@@ -65,6 +69,17 @@ pub struct DashboardStateResponse {
     pub target_wallets: Vec<WalletScore>,
     pub losses: usize,
     pub halt_limit: usize,
+    pub daily_loss: f64,
+    pub daily_max_loss: f64,
+    pub total_trades_session: usize,
+    pub win_rate: f64,
+    pub max_open_positions: usize,
+}
+
+#[derive(Serialize)]
+pub struct HealthResponse {
+    pub status: String,
+    pub uptime_secs: u64,
 }
 
 /// Run the Axum web server
@@ -89,11 +104,13 @@ pub async fn run_server(
 
     let shared_state = state.clone();
 
-    // Setup typical Axum app with static file serving
+    // Setup typical Axum app with static file serving + CORS
     let app = Router::new()
         .route("/api/state", get(get_state))
         .route("/api/logs", get(get_logs))
+        .route("/api/health", get(get_health))
         .fallback_service(ServeDir::new("public"))
+        .layer(CorsLayer::permissive())
         .with_state(shared_state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
@@ -108,6 +125,7 @@ async fn get_state(State(state): State<Arc<AppState>>) -> Json<DashboardStateRes
     let balance = *state.usdc_balance.read().await;
     let initial = state.initial_balance;
     let losses = state.consecutive_losses.load(Ordering::Relaxed);
+    let daily_loss_val = *state.daily_loss.read().await;
     
     let bot_state_str = match b_state {
         BotState::Running => "RUNNING",
@@ -120,6 +138,20 @@ async fn get_state(State(state): State<Arc<AppState>>) -> Json<DashboardStateRes
     let positions: Vec<Position> = state.position_tracker.positions.iter().map(|kv| kv.value().clone()).collect();
     let wallets: Vec<WalletScore> = state.wallet_tracker.scores.iter().map(|kv| kv.value().clone()).collect();
 
+    // Count COPY + FILL log entries for total_trades_session
+    let logs = state.trade_log.read().await;
+    let total_trades_session = logs.iter()
+        .filter(|l| l.kind == "COPY" || l.kind == "FILL")
+        .count();
+
+    // Compute average win_rate across all tracked wallets
+    let win_rate = if wallets.is_empty() {
+        0.0
+    } else {
+        let sum: f64 = wallets.iter().map(|w| w.win_rate).sum();
+        sum / wallets.len() as f64
+    };
+
     Json(DashboardStateResponse {
         mode: if conf.copy.preview_mode { "PAPER".into() } else { "LIVE".into() },
         state: bot_state_str.into(),
@@ -131,6 +163,11 @@ async fn get_state(State(state): State<Arc<AppState>>) -> Json<DashboardStateRes
         target_wallets: wallets,
         losses,
         halt_limit: conf.risk.consecutive_loss_halt,
+        daily_loss: rust_decimal::prelude::ToPrimitive::to_f64(&daily_loss_val).unwrap_or(0.0),
+        daily_max_loss: conf.risk.daily_max_loss_usdc,
+        total_trades_session,
+        win_rate,
+        max_open_positions: conf.risk.max_open_positions,
     })
 }
 
@@ -138,4 +175,12 @@ async fn get_state(State(state): State<Arc<AppState>>) -> Json<DashboardStateRes
 async fn get_logs(State(state): State<Arc<AppState>>) -> Json<Vec<LogEntry>> {
     let logs = state.trade_log.read().await.clone();
     Json(logs)
+}
+
+// Handler for health check
+async fn get_health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ok".into(),
+        uptime_secs: state.start_time.elapsed().as_secs(),
+    })
 }

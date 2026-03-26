@@ -99,7 +99,7 @@ impl CopyEngine {
                             if let Ok(json) = res.json::<serde_json::Value>().await {
                                 if let Some(result) = json.get("result").and_then(|r| r.as_str()) {
                                     let clean_hex = result.trim_start_matches("0x");
-                                    if let Ok(val) = u64::from_str_radix(clean_hex, 16) {
+                                    if let Ok(val) = u128::from_str_radix(clean_hex, 16) {
                                         let balance = Decimal::from_f64_retain((val as f64) / 1_000_000.0).unwrap_or(dec!(0.0));
                                         *balance_clone.write().await = balance;
                                     }
@@ -155,6 +155,7 @@ impl CopyEngine {
 
                 let intent = OrderIntent {
                     market_id: event.market_id.clone(),
+                    market_name: event.market_name.clone(),
                     asset_id: event.asset_id.clone(),
                     side: event.side,
                     size: intent_shares,
@@ -206,7 +207,7 @@ impl CopyEngine {
         let portfolio_balance = *self.portfolio_balance.read().await;
         let exact_price = if event.price > rust_decimal_macros::dec!(0.0) { event.price } else { rust_decimal_macros::dec!(0.0001) };
 
-        let (mut final_shares, mut final_usdc) = if config.copy.sizing_mode == "shares" {
+        let (final_shares, final_usdc) = if config.copy.sizing_mode == "shares" {
             let shares = Decimal::from_f64_retain(config.copy.fixed_shares).unwrap_or(rust_decimal_macros::dec!(5.0));
             (shares, shares * exact_price)
         } else {
@@ -229,17 +230,21 @@ impl CopyEngine {
 
         let min_size = Decimal::from_f64_retain(config.copy.min_copy_size_usdc).unwrap_or(rust_decimal_macros::dec!(2.0));
         if final_usdc < min_size {
-            // For testing & safety bounds: force minimum size instead of dropping the trade
-            final_usdc = min_size;
-            final_shares = final_usdc / exact_price;
+            let _ = self.log_tx.send(crate::types::LogEntry {
+                time: chrono::Utc::now().format("%H:%M:%S").to_string(),
+                kind: "SKIP".to_string(),
+                message: format!("Trade ${:.2} below min ${:.2}, skipping instead of inflating", final_usdc, min_size),
+            });
+            return;
         }
 
         let intent = OrderIntent {
             market_id: event.market_id,
+            market_name: event.market_name,
             asset_id: event.asset_id,
             side: event.side,
             size: final_shares,
-            price: event.price,
+            price: exact_price,
             order_type: OrderType::FOK,
             source_wallet: event.wallet,
             is_sell: false,
