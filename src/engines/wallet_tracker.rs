@@ -97,75 +97,85 @@ impl WalletTracker {
             }
         });
 
-        // 1h Score refresh loop
+        // 1h Score refresh loop — fetch immediately on boot, then every hour
         let tracker_for_refresh = self.clone();
         tokio::spawn(async move {
             let client = reqwest::Client::new();
+            // Immediate fetch so Kelly sizing has real data from second zero
+            Self::refresh_scores(&tracker_for_refresh, &client).await;
             loop {
                 tokio::time::sleep(Duration::from_secs(3600)).await;
-                info!("Refreshing wallet win rates from Data API...");
-                
-                let mut addrs = Vec::new();
-                for entry in tracker_for_refresh.scores.iter() {
-                    addrs.push(*entry.key());
-                }
+                Self::refresh_scores(&tracker_for_refresh, &client).await;
+            }
+        });
+    }
 
-                for addr in addrs {
-                    let addr_str = format!("{:?}", addr);
-                    let url = format!("https://data-api.polymarket.com/activity?user={}&limit=500&offset=0", addr_str);
-                    
-                    if let Ok(res) = client.get(&url).send().await {
-                        if let Ok(json) = res.json::<serde_json::Value>().await {
-                            if let Some(arr) = json.as_array() {
-                                let mut markets: std::collections::HashMap<String, (f64, f64)> = std::collections::HashMap::new();
-                                for item in arr {
-                                    let c_id = item.get("conditionId").and_then(|v| v.as_str()).unwrap_or("");
-                                    if c_id.is_empty() { continue; }
-                                    
-                                    let ty = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                                    let usdc = item.get("usdcSize").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                    
-                                    let entry = markets.entry(c_id.to_string()).or_insert((0.0, 0.0));
-                                    
-                                    if ty == "TRADE" {
-                                        let side = item.get("side").and_then(|v| v.as_str()).unwrap_or("");
-                                        if side == "BUY" {
-                                            entry.0 += usdc;
-                                        } else if side == "SELL" {
-                                            entry.1 += usdc;
-                                        }
-                                    } else if ty == "REDEEM" || ty == "SETTLE" {
-                                        entry.1 += usdc;
-                                    }
+    async fn refresh_scores(tracker: &Arc<Self>, client: &reqwest::Client) {
+        info!("Refreshing wallet win rates from Data API...");
+
+        let addrs: Vec<Address> = tracker.scores.iter().map(|e| *e.key()).collect();
+
+        for addr in addrs {
+            let addr_str = format!("{:?}", addr);
+            let url = format!(
+                "https://data-api.polymarket.com/activity?user={}&limit=500&offset=0",
+                addr_str
+            );
+
+            if let Ok(res) = client.get(&url).send().await {
+                if let Ok(json) = res.json::<serde_json::Value>().await {
+                    if let Some(arr) = json.as_array() {
+                        let mut markets: std::collections::HashMap<String, (f64, f64)> =
+                            std::collections::HashMap::new();
+
+                        for item in arr {
+                            let c_id = item.get("conditionId").and_then(|v| v.as_str()).unwrap_or("");
+                            if c_id.is_empty() { continue; }
+
+                            let ty = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            let usdc = item.get("usdcSize").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                            let entry = markets.entry(c_id.to_string()).or_insert((0.0, 0.0));
+
+                            if ty == "TRADE" {
+                                let side = item.get("side").and_then(|v| v.as_str()).unwrap_or("");
+                                if side == "BUY" {
+                                    entry.0 += usdc;
+                                } else if side == "SELL" {
+                                    entry.1 += usdc;
                                 }
-                                
-                                let mut wins = 0;
-                                let mut total = 0;
-                                let mut total_pnl = 0.0;
-                                
-                                for (_, (cost, rev)) in markets {
-                                    if rev > 0.0 || cost > 0.0 {
-                                        total += 1;
-                                        let pnl = rev - cost;
-                                        total_pnl += pnl;
-                                        if pnl > 0.0 {
-                                            wins += 1;
-                                        }
-                                    }
-                                }
-                                
-                                let win_rate = if total > 2 { wins as f64 / total as f64 } else { 0.55 };
-                                
-                                if let Some(mut score) = tracker_for_refresh.scores.get_mut(&addr) {
-                                    score.win_rate = win_rate;
-                                    score.total_pnl = Decimal::from_f64_retain(total_pnl).unwrap_or(Decimal::ZERO);
-                                    score.trade_count = total as u32;
+                            } else if ty == "REDEEM" || ty == "SETTLE" {
+                                entry.1 += usdc;
+                            }
+                        }
+
+                        let mut wins = 0;
+                        let mut total = 0;
+                        let mut total_pnl = 0.0;
+
+                        for (_, (cost, rev)) in markets {
+                            if rev > 0.0 || cost > 0.0 {
+                                total += 1;
+                                let pnl = rev - cost;
+                                total_pnl += pnl;
+                                if pnl > 0.0 {
+                                    wins += 1;
                                 }
                             }
+                        }
+
+                        let win_rate = if total > 2 { wins as f64 / total as f64 } else { 0.55 };
+
+                        if let Some(mut score) = tracker.scores.get_mut(&addr) {
+                            score.win_rate = win_rate;
+                            score.total_pnl = Decimal::from_f64_retain(total_pnl).unwrap_or(Decimal::ZERO);
+                            score.trade_count = total as u32;
+                            info!("Wallet {} → win_rate={:.2}%, PnL=${:.2}, trades={}",
+                                &addr_str[..10.min(addr_str.len())], win_rate * 100.0, total_pnl, total);
                         }
                     }
                 }
             }
-        });
+        }
     }
 }
