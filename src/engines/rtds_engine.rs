@@ -163,11 +163,18 @@ impl RtdsEngine {
                                     continue;
                                 }
                                 
-                                // Map side correctly: BUY of "No" outcome = Side::No
+                                // A "SELL" event means the whale is liquidating/taking profit.
+                                // We should NOT map "SELL Yes" to "Buy No" because that opens a new opposite position.
+                                // For a pure copy-trader, we only copy conviction entries (BUY).
+                                if side_str.eq_ignore_ascii_case("SELL") {
+                                    continue;
+                                }
+
+                                // Map side correctly for BUY orders
                                 let side = if outcome.eq_ignore_ascii_case("No") {
-                                    if side_str.eq_ignore_ascii_case("BUY") { Side::No } else { Side::Yes }
+                                    Side::No
                                 } else {
-                                    if side_str.eq_ignore_ascii_case("BUY") { Side::Yes } else { Side::No }
+                                    Side::Yes
                                 };
 
                                 // On first run: show in TUI feed but DON'T trigger copy engine

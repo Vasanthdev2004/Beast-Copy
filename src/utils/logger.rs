@@ -5,8 +5,8 @@ pub fn init() {
     // Create logs directory
     fs::create_dir_all("logs").ok();
 
-    // Write logs to a file so the TUI dashboard has a clean terminal
-    let log_file = fs::OpenOptions::new()
+    // Write logs to a file so we have a persistent record
+    let _log_file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open("logs/poly-apex.log")
