@@ -16,6 +16,8 @@ pub struct SettlementMonitor {
     log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
     usdc_balance: Arc<RwLock<Decimal>>,
     daily_loss: Arc<RwLock<Decimal>>,
+    /// Receives realized loss notifications from ClobExecutor
+    loss_rx: tokio::sync::mpsc::UnboundedReceiver<Decimal>,
 }
 
 impl SettlementMonitor {
@@ -27,6 +29,7 @@ impl SettlementMonitor {
         log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
         usdc_balance: Arc<RwLock<Decimal>>,
         daily_loss: Arc<RwLock<Decimal>>,
+        loss_rx: tokio::sync::mpsc::UnboundedReceiver<Decimal>,
     ) -> Self {
         Self {
             result_rx,
@@ -36,14 +39,23 @@ impl SettlementMonitor {
             log_tx,
             usdc_balance,
             daily_loss,
+            loss_rx,
         }
     }
 
     pub async fn run(mut self) {
         info!("SettlementMonitor started");
 
-        while let Some(result) = self.result_rx.recv().await {
-            self.process_result(result).await;
+        loop {
+            tokio::select! {
+                Some(result) = self.result_rx.recv() => {
+                    self.process_result(result).await;
+                }
+                Some(loss_amount) = self.loss_rx.recv() => {
+                    self.record_realized_loss(loss_amount).await;
+                }
+                else => break,
+            }
         }
     }
 

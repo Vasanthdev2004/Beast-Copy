@@ -67,6 +67,13 @@ async fn main() -> anyhow::Result<()> {
         log_tx.clone(),
     );
 
+    // Shared daily loss counter — written by ClobExecutor (live loss),
+    // fed to RiskGate for daily-loss-limit check, and to SettlementMonitor for display.
+    let daily_loss: Arc<RwLock<Decimal>> = Arc::new(RwLock::new(Decimal::ZERO));
+
+    // Loss reporting channel: ClobExecutor → SettlementMonitor
+    let (loss_tx, loss_rx) = tokio::sync::mpsc::unbounded_channel::<Decimal>();
+
     // Risk Gate
     let risk_gate = risk::risk_gate::RiskGate::new(
         intent_rx,
@@ -76,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
         position_tracker.clone(),
         consecutive_losses.clone(),
         log_tx.clone(),
+        daily_loss.clone(),
     );
 
     // 6. DB Initialization & State Recovery
@@ -104,10 +112,10 @@ async fn main() -> anyhow::Result<()> {
         position_tracker.clone(),
         usdc_balance.clone(),
         db_client_arc.clone(),
+        loss_tx.clone(),
     ).await;
 
     // Settlement Monitor
-    let daily_loss: Arc<RwLock<Decimal>> = Arc::new(RwLock::new(Decimal::ZERO));
     let settlement_monitor = execution::settlement::SettlementMonitor::new(
         result_rx,
         position_tracker.clone(),
@@ -116,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
         log_tx.clone(),
         usdc_balance.clone(),
         daily_loss.clone(),
+        loss_rx,
     );
 
     // 7. Database Async Flush (Every 30s)

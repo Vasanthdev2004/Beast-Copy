@@ -10,7 +10,12 @@ use alloy_primitives::Address;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use dashmap::DashMap;
+
+/// Maximum age of a trade (in seconds) before it is considered stale.
+/// Stale trades are seeded into the seen-hashes cache but never broadcast
+/// to the CopyEngine.
+const STALENESS_CUTOFF_SECS: u64 = 30;
 
 /// Polls the Polymarket Data API for wallet trade activity.
 /// On first run it seeds recent trades into the TUI feed (without copy-trading them).
@@ -19,7 +24,9 @@ pub struct RtdsEngine {
     tx: broadcast::Sender<TradeEvent>,
     log_tx: tokio::sync::mpsc::UnboundedSender<LogEntry>,
     wallet_tracker: Arc<WalletTracker>,
-    seen_hashes: Arc<RwLock<std::collections::HashSet<String>>>,
+    /// Hash → timestamp (Unix seconds) dedup cache with TTL eviction.
+    /// Replaces the old HashSet which had undefined iteration order.
+    seen_hashes: Arc<DashMap<String, u64>>,
     client: reqwest::Client,
 }
 
@@ -39,7 +46,7 @@ impl RtdsEngine {
             tx,
             log_tx,
             wallet_tracker,
-            seen_hashes: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            seen_hashes: Arc::new(DashMap::new()),
             client,
         }
     }
@@ -84,15 +91,9 @@ impl RtdsEngine {
             
             // Evict oldest entries to prevent unbounded memory growth
             {
-                let mut cache = self.seen_hashes.write().await;
-                if cache.len() > 10000 {
-                    let skip = cache.len() - 5000;
-                    let to_keep: Vec<String> = cache.iter().skip(skip).cloned().collect();
-                    cache.clear();
-                    for h in to_keep {
-                        cache.insert(h);
-                    }
-                }
+                let now_ts = chrono::Utc::now().timestamp() as u64;
+                // Retain only hashes seen in the last 1 hour
+                self.seen_hashes.retain(|_, ts| now_ts.saturating_sub(*ts) < 3600);
             }
 
             if first_run {
@@ -104,9 +105,9 @@ impl RtdsEngine {
     }
 
     async fn poll_wallet(
-        client: reqwest::Client, 
-        wallet: String, 
-        seen_hashes: Arc<RwLock<std::collections::HashSet<String>>>,
+        client: reqwest::Client,
+        wallet: String,
+        seen_hashes: Arc<DashMap<String, u64>>,
         tx: broadcast::Sender<TradeEvent>,
         log_tx: tokio::sync::mpsc::UnboundedSender<LogEntry>,
         seed_only: bool,
@@ -125,7 +126,7 @@ impl RtdsEngine {
                 Ok(res) => {
                     if let Ok(json) = res.json::<Value>().await {
                         if let Some(trades) = json.as_array() {
-                            let mut cache = seen_hashes.write().await;
+                            let now_ts = chrono::Utc::now().timestamp() as u64;
                             for trade in trades {
                                 // Only process TRADE type events
                                 let trade_type = trade.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -135,11 +136,53 @@ impl RtdsEngine {
 
                                 // Dedup by transactionHash
                                 let tx_hash = trade.get("transactionHash").and_then(|v| v.as_str()).unwrap_or("");
-                                if tx_hash.is_empty() || cache.contains(tx_hash) {
+                                if tx_hash.is_empty() {
                                     continue;
                                 }
-                                cache.insert(tx_hash.to_string());
-                                
+
+                                let timestamp = trade.get("timestamp")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+
+                                // ── Staleness filter: skip trades older than STALENESS_CUTOFF_SECS ──
+                                let age_secs = now_ts.saturating_sub(timestamp);
+                                if age_secs > STALENESS_CUTOFF_SECS {
+                                    // Always cache it so we don't re-process on next poll
+                                    seen_hashes.insert(tx_hash.to_string(), now_ts);
+                                    // Seed into TUI feed as HIST but never trigger copy
+                                    let ts_str = chrono::DateTime::from_timestamp(timestamp as i64, 0)
+                                        .map(|dt| dt.format("%H:%M:%S").to_string())
+                                        .unwrap_or_else(|| "??:??:??".to_string());
+                                    let side_str = trade.get("side").and_then(|v| v.as_str()).unwrap_or("BUY");
+                                    let usdc_size = trade.get("usdcSize")
+                                        .and_then(|v| v.as_f64())
+                                        .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                                        .unwrap_or_default();
+                                    let price = trade.get("price")
+                                        .and_then(|v| v.as_f64())
+                                        .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                                        .unwrap_or_default();
+                                    let title = trade.get("title").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                                    let outcome = trade.get("outcome").and_then(|v| v.as_str()).unwrap_or("");
+
+                                    let _ = log_tx.send(LogEntry {
+                                        time: ts_str,
+                                        kind: "HIST".to_string(),
+                                        message: format!("{} {} ${:.2} @¢{} — {} [STALE {}s]",
+                                            side_str, outcome, usdc_size.round_dp(2),
+                                            (price * Decimal::from(100)).round_dp(0),
+                                            if title.len() > 35 { &title[..35] } else { title },
+                                            age_secs),
+                                    });
+                                    continue;
+                                }
+
+                                // Check if already seen (fresh trades only)
+                                if seen_hashes.contains_key(tx_hash) {
+                                    continue;
+                                }
+                                seen_hashes.insert(tx_hash.to_string(), now_ts);
+
                                 // Extract fields from Data API response
                                 let asset_id = trade.get("asset").and_then(|v| v.as_str()).unwrap_or("");
                                 let side_str = trade.get("side").and_then(|v| v.as_str()).unwrap_or("BUY");
@@ -155,9 +198,6 @@ impl RtdsEngine {
                                     .and_then(|v| v.as_f64())
                                     .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
                                     .unwrap_or_default();
-                                let timestamp = trade.get("timestamp")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
 
                                 if asset_id.is_empty() {
                                     continue;

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{info, error};
 use rust_decimal::Decimal;
+use dashmap::DashMap;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::HashMap;
@@ -21,6 +22,9 @@ pub struct RiskGate {
     daily_loss: Arc<RwLock<Decimal>>,
     market_cooldowns: Arc<RwLock<HashMap<String, u64>>>,
     halted_at: Arc<RwLock<Option<std::time::Instant>>>,
+    /// Short-lived cache of market liquidity (USDC) to avoid per-trade RPC calls.
+    /// Key: market_id, Value: (liquidity_usdc, cached_at_timestamp_secs)
+    liquidity_cache: Arc<DashMap<String, (Decimal, u64)>>,
 }
 
 impl RiskGate {
@@ -32,6 +36,7 @@ impl RiskGate {
         position_tracker: Arc<PositionTracker>,
         consecutive_losses: Arc<AtomicUsize>,
         log_tx: tokio::sync::mpsc::UnboundedSender<crate::types::LogEntry>,
+        daily_loss: Arc<RwLock<Decimal>>,
     ) -> Self {
         Self {
             intent_rx,
@@ -41,9 +46,10 @@ impl RiskGate {
             position_tracker,
             consecutive_losses,
             log_tx,
-            daily_loss: Arc::new(RwLock::new(Decimal::ZERO)),
+            daily_loss,
             market_cooldowns: Arc::new(RwLock::new(HashMap::new())),
             halted_at: Arc::new(RwLock::new(None)),
+            liquidity_cache: Arc::new(DashMap::new()),
         }
     }
 
@@ -128,10 +134,10 @@ impl RiskGate {
             return false;
         }
 
-        // 5. Price bounds (safety)
+        // 5. Price bounds (safety — reject extreme prices)
         if intent.price < rust_decimal_macros::dec!(0.01) || intent.price > rust_decimal_macros::dec!(0.99) {
-            // self.log_skip(&format!("Price {} outside 0.01-0.99", intent.price)).await;
-            // return false; // DISABLED FOR TESTING
+            self.log_skip(&format!("Price {} outside 0.01-0.99 bounds", intent.price)).await;
+            return false;
         }
 
         // 6. Daily loss limit
@@ -142,13 +148,13 @@ impl RiskGate {
             return false;
         }
 
-        // 7. Slippage check
+        // 7. Slippage check — price must be within configured slippage tolerance
         let slippage_pct = Decimal::from_f64_retain(config.risk.max_slippage_pct).unwrap_or(rust_decimal_macros::dec!(2.5));
         let max_price = rust_decimal_macros::dec!(1.0) - (slippage_pct / rust_decimal_macros::dec!(100.0));
         let min_price = slippage_pct / rust_decimal_macros::dec!(100.0);
         if intent.price > max_price || intent.price < min_price {
-            // self.log_skip(&format!("Price {:.2} outside slippage bounds ({:.2}-{:.2})", intent.price, min_price, max_price)).await;
-            // return false; // DISABLED FOR TESTING
+            self.log_skip(&format!("Price {:.2} outside slippage bounds ({:.2}-{:.2})", intent.price, min_price, max_price)).await;
+            return false;
         }
 
         // 8. Market cooldown
@@ -163,6 +169,50 @@ impl RiskGate {
             }
         }
         self.market_cooldowns.write().await.insert(intent.market_id.clone(), now_secs);
+
+        // 9. Market liquidity check — skip if market doesn't have enough depth
+        let min_liq = Decimal::from_f64_retain(config.copy.min_market_liquidity_usdc).unwrap_or(rust_decimal_macros::dec!(500.0));
+        if min_liq > Decimal::ZERO {
+            let now_ts = chrono::Utc::now().timestamp() as u64;
+            let cached = self.liquidity_cache.get(&intent.market_id);
+
+            let liquidity = if let Some(entry) = cached {
+                let (liq, ts) = entry.value();
+                if now_ts - *ts < 60 {
+                    *liq
+                } else {
+                    Decimal::MIN
+                }
+            } else {
+                Decimal::MIN
+            };
+
+            if liquidity < min_liq && liquidity != Decimal::MIN {
+                self.log_skip(&format!("Market {} liquidity ${:.2} below min ${:.2}", &intent.market_id[..8.min(intent.market_id.len())], liquidity, min_liq)).await;
+                return false;
+            }
+
+            // If not cached or stale, fetch liquidity from Polymarket CLOB API
+            if liquidity == Decimal::MIN {
+                let client = reqwest::Client::new();
+                let url = format!("https://clob.polymarket.com/markets/{}", intent.market_id);
+                if let Ok(res) = client.get(&url).send().await {
+                    if let Ok(json) = res.json::<serde_json::Value>().await {
+                        if let Some(liq) = json.get("liquidity")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse::<f64>().ok())
+                        {
+                            let liq_dec = Decimal::from_f64_retain(liq).unwrap_or(Decimal::ZERO);
+                            self.liquidity_cache.insert(intent.market_id.clone(), (liq_dec, now_ts));
+                            if liq_dec < min_liq {
+                                self.log_skip(&format!("Market {} liquidity ${:.2} below min ${:.2}", &intent.market_id[..8.min(intent.market_id.len())], liq_dec, min_liq)).await;
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         true
     }

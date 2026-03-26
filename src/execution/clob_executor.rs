@@ -21,6 +21,8 @@ pub struct ClobExecutor {
     position_tracker: Arc<PositionTracker>,
     usdc_balance: Arc<RwLock<Decimal>>,
     db_client: Option<Arc<crate::storage::db::DbClient>>,
+    /// Channel to report realized losses to SettlementMonitor
+    loss_tx: tokio::sync::mpsc::UnboundedSender<Decimal>,
 }
 
 impl ClobExecutor {
@@ -32,6 +34,7 @@ impl ClobExecutor {
         position_tracker: Arc<PositionTracker>,
         usdc_balance: Arc<RwLock<Decimal>>,
         db_client: Option<Arc<crate::storage::db::DbClient>>,
+        loss_tx: tokio::sync::mpsc::UnboundedSender<Decimal>,
     ) -> Self {
         let pkey_str = std::env::var("WALLET_PRIVATE_KEY").unwrap_or_default();
         let mut trading_client = None;
@@ -72,6 +75,7 @@ impl ClobExecutor {
             position_tracker,
             usdc_balance,
             db_client,
+            loss_tx,
         }
     }
 
@@ -289,10 +293,24 @@ impl ClobExecutor {
                             }
                         }
                         if let Some(key) = found_key {
-                            self.position_tracker.positions.remove(&key);
-                            if let Some(db) = &self.db_client {
-                                let side_db = match intent.side { Side::Yes => "Yes", Side::No => "No" };
-                                let _ = db.delete_position(&intent.market_id, side_db, &intent.source_wallet.to_string()).await;
+                            if let Some((_, old_pos)) = self.position_tracker.positions.remove(&key) {
+                                let shares = if old_pos.entry_price > rust_decimal_macros::dec!(0.0) {
+                                    old_pos.size / old_pos.entry_price
+                                } else {
+                                    old_pos.size
+                                };
+                                let revenue = (shares * intent.price).round_dp(2);
+                                let pnl = revenue - old_pos.size;
+
+                                // Report realized loss so RiskGate daily_loss is kept in sync
+                                if pnl < Decimal::ZERO {
+                                    let _ = self.loss_tx.send(pnl.abs());
+                                }
+
+                                if let Some(db) = &self.db_client {
+                                    let side_db = match intent.side { Side::Yes => "Yes", Side::No => "No" };
+                                    let _ = db.delete_position(&intent.market_id, side_db, &intent.source_wallet.to_string()).await;
+                                }
                             }
                         }
                     }

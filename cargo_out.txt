@@ -1,11 +1,4 @@
- Downloading crates ...
-  Downloaded tokio-tungstenite v0.29.0
-  Downloaded tungstenite v0.29.0
-   Compiling getrandom v0.3.4
-   Compiling thiserror v2.0.18
-   Compiling ahash v0.8.12
-   Compiling hashbrown v0.14.5
-    Checking rand_core v0.9.5
-    Checking alloy-json-rpc v0.7.3
-    Checking alloy-signer v0.7.3
-^C
+    Checking poly-apex-copy v0.1.0 (D:\Poly Projects\New Era\Beast-Copy)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.24s
+warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
